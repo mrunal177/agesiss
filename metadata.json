@@ -1,0 +1,11 @@
+{
+  "name": "Remix Remix AEGIS - Autonomous Experiment Guidance \u0026 Interaction System",
+  "description": "Autonomous Experiment Guidance \u0026 Interaction System for Human Activity Recognition in on-board space biology and microgravity experiments.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
