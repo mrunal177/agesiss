@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAegisStore } from '../store/useAegisStore';
+import { ExperimentGuidanceVisual } from '../components/ExperimentGuidanceVisual';
 import {
   ShieldCheck,
   Radio,
@@ -17,45 +18,48 @@ export const OverviewScreen: React.FC = () => {
   const { setActiveScreen, startWalkthrough } = useAegisStore();
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto pb-12">
-      {/* Hero Section */}
-      <section className="relative overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-cyan-50/40 to-slate-50 p-8 md:p-10 shadow-sm">
-        <div className="relative z-10 max-w-3xl space-y-4">
-          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-cyan-100/80 border border-cyan-200 text-cyan-900 text-xs font-mono font-medium">
-            <span className="w-2 h-2 rounded-full bg-cyan-600 animate-pulse" />
-            <span>Smart India Hackathon 2026 · PS SIH26174 · Team Mavira52</span>
+    <div className="w-full pb-12">
+      {/* Hero Section: Complete box from left to right end */}
+      <section className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-6 w-auto relative overflow-hidden border-b border-slate-200 bg-gradient-to-br from-white via-cyan-50/50 to-slate-50 px-6 sm:px-10 lg:px-16 py-8 md:py-10 lg:py-12 shadow-xs">
+        <div className="relative z-10 w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+          <div className="lg:col-span-7 space-y-4">
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold font-display tracking-tight text-slate-900 leading-tight">
+              Autonomous Experiment Guidance &amp; Interaction System
+            </h1>
+
+            <p className="text-sm md:text-base text-slate-600 leading-relaxed max-w-2xl">
+              Real-time on-board computer vision and deterministic sequence verification for biological payload experiments in microgravity racks. Eliminates operator ambiguity through closed-loop multimodal voice guidance and sub-50ms fault detection.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <button
+                onClick={() => setActiveScreen('live')}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold font-mono transition-colors shadow-md shadow-cyan-900/10 cursor-pointer"
+              >
+                <Radio className="w-4 h-4" />
+                <span>Open Live Monitor</span>
+                <ArrowRight className="w-4 h-4 ml-1" />
+              </button>
+
+              <button
+                onClick={startWalkthrough}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-semibold font-mono transition-colors shadow-2xs cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 text-cyan-600" />
+                <span>Start Guided Walkthrough</span>
+              </button>
+            </div>
           </div>
 
-          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold font-display tracking-tight text-slate-900 leading-tight">
-            Autonomous Experiment Guidance &amp; Interaction System
-          </h1>
-
-          <p className="text-sm md:text-base text-slate-600 leading-relaxed max-w-2xl">
-            Real-time on-board computer vision and deterministic sequence verification for biological payload experiments in microgravity racks. Eliminates operator ambiguity through closed-loop multimodal voice guidance and sub-50ms fault detection.
-          </p>
-
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <button
-              onClick={() => setActiveScreen('live')}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold font-mono transition-colors shadow-md shadow-cyan-900/10 cursor-pointer"
-            >
-              <Radio className="w-4 h-4" />
-              <span>Open Live Monitor</span>
-              <ArrowRight className="w-4 h-4 ml-1" />
-            </button>
-
-            <button
-              onClick={startWalkthrough}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-semibold font-mono transition-colors shadow-2xs cursor-pointer"
-            >
-              <Sparkles className="w-4 h-4 text-cyan-600" />
-              <span>Start Guided Walkthrough</span>
-            </button>
+          <div className="lg:col-span-5 w-full">
+            <ExperimentGuidanceVisual />
           </div>
         </div>
       </section>
 
-      {/* Operational Flow Strip: Problem -> Solution -> Intelligence -> Result -> Action -> Impact */}
+      {/* Main Content Sections Container */}
+      <div className="max-w-7xl mx-auto space-y-8 mt-8">
+        {/* Operational Flow Strip: Problem -> Solution -> Intelligence -> Result -> Action -> Impact */}
       <section className="space-y-3">
         <h2 className="text-xs font-mono uppercase tracking-widest text-slate-500 font-bold">
           Operational Flow Architecture
@@ -179,6 +183,7 @@ export const OverviewScreen: React.FC = () => {
           </div>
         </div>
       </section>
+      </div>
     </div>
   );
 };

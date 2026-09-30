@@ -87,21 +87,21 @@ export const ProtocolGuidancePanel: React.FC = () => {
             status: 'warning',
             headline: 'Chamber Still Closed!',
             message: 'You are attempting to retrieve objects before opening the containment chamber.',
-            actionHint: 'Please open the box lid first (or click "Open Box Now").',
+            actionHint: 'Please open the box lid using your webcam hand gesture: Point → Pinch → Lift Up → Release.',
           };
         } else if (heartbeat.handStatus === 'none') {
           liveCoachingStatus = {
             status: 'hint',
-            headline: 'Step 1: Open Containment Box (On-Screen or Webcam)',
-            message: 'Easy options: 1) Point index finger at LID LATCH and pinch/wave to open; 2) Click "Open Box Now" / Spacebar; 3) Wave hand across the Box Region; or 4) Open a real box lid.',
-            actionHint: 'Voice Command: "Please open the box." · Point & Pinch lid on-screen or press Spacebar',
+            headline: 'Step 1: Open Containment Box (Webcam Hand Gesture)',
+            message: 'Touchless gesture sequence: 1) POINT TO LID, 2) PINCH TO GRAB LID, 3) LIFT / SLIDE UP, 4) RELEASE TO OPEN.',
+            actionHint: 'Voice Command: "Please open the box." · Use webcam hand gesture',
           };
         } else {
           liveCoachingStatus = {
             status: 'hint',
-            headline: 'Hand/Motion Detected Near Chamber',
-            message: 'Optical sensor detects hand in Box Region. Keep moving hand or open lid to confirm.',
-            actionHint: 'Auto-opening in progress, or click "Open Box Now" to advance immediately.',
+            headline: 'Webcam Hand Detected Near Chamber',
+            message: 'Point index finger at the box lid, pinch thumb and index together, lift upward, and release to open.',
+            actionHint: '"POINT TO LID" → "PINCH TO GRAB LID" → "LIFT / SLIDE UP" → "RELEASE TO OPEN"',
           };
         }
         break;
@@ -321,18 +321,6 @@ export const ProtocolGuidancePanel: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Step 1 Quick Open Action */}
-            {fsmIdx === 0 && sessionState === 'running' && (
-              <button
-                onClick={triggerBoxOpen}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-mono font-bold shadow-xs transition-colors cursor-pointer"
-                title="Instantly mark box opened (Hotkey: Spacebar)"
-              >
-                <Box className="w-3.5 h-3.5" />
-                <span>Open Box Now</span>
-              </button>
-            )}
-
             <button
               onClick={speakCurrentCommand}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 text-xs font-mono font-medium shadow-2xs transition-colors"
@@ -490,27 +478,13 @@ export const ProtocolGuidancePanel: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Simulated Quick Action button if user wants to trigger it */}
+                {/* Real-time touchless status badge */}
                 <div className="flex items-center gap-2">
                   {isCurrent && sessionState === 'running' && (
-                    <button
-                      onClick={async () => {
-                        if (idx === 0) triggerBoxOpen();
-                        else if (idx === 1) await executeVirtualStep('PICK_RED');
-                        else if (idx === 2) await executeVirtualStep('PLACE_RED');
-                        else if (idx === 3) await executeVirtualStep('PICK_YELLOW');
-                        else if (idx === 4) await executeVirtualStep('PLACE_YELLOW');
-                      }}
-                      className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors shadow-2xs flex items-center gap-1 ${
-                        idx === 0
-                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white font-bold'
-                          : 'bg-cyan-600 hover:bg-cyan-500 text-white'
-                      }`}
-                      title="Trigger action in simulation or on camera feed"
-                    >
-                      <Play className="w-3 h-3" />
-                      <span>{idx === 0 ? 'Open Box Now' : 'Simulate Action'}</span>
-                    </button>
+                    <span className="px-2.5 py-1 rounded text-[11px] font-mono font-semibold bg-cyan-100 text-cyan-800 border border-cyan-300 flex items-center gap-1.5 animate-pulse">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-600" />
+                      <span>{idx === 0 ? 'Wave/Pinch Lid' : 'Webcam Gesture Active'}</span>
+                    </span>
                   )}
                 </div>
               </div>

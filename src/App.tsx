@@ -40,20 +40,6 @@ export const App: React.FC = () => {
 
       {/* Guided Walkthrough Floating Tour Controller & Summary Modal */}
       <GuidedWalkthrough />
-
-      {/* Subtle Aerospace Footer */}
-      <footer className="mt-auto border-t border-slate-200 bg-white px-6 py-4 text-xs font-mono text-slate-500 flex flex-wrap items-center justify-between gap-2 shadow-xs">
-        <div className="flex items-center gap-3">
-          <span className="font-semibold text-slate-700">AEGIS · Autonomous Experiment Guidance &amp; Interaction System</span>
-          <span>·</span>
-          <span>SIH26174 · Team Mavira52</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span>Edge Deploy: NVIDIA Jetson Orin Nano</span>
-          <span>·</span>
-          <span>Fixed Overhead Coordinate Frame</span>
-        </div>
-      </footer>
     </div>
   );
 };

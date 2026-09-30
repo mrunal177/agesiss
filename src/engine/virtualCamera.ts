@@ -24,6 +24,8 @@ export class VirtualCamera {
   public showInteractiveOverlayOnLive: boolean = true; // Displays draggable lid & specimens directly on webcam video
   public redPos: Point2D = { x: 130, y: 110 };
   public yellowPos: Point2D = { x: 180, y: 110 };
+  public isRedPlaced: boolean = false;
+  public isYellowPlaced: boolean = false;
   public handPos: Point2D = { x: 40, y: 180 };
   public handVisible: boolean = false;
   public handHolding: 'none' | 'red' | 'yellow' = 'none';
@@ -84,6 +86,8 @@ export class VirtualCamera {
     this.stopAutoPlay();
     this.boxOpen = false;
     this.lidSlideOffset = 0;
+    this.isRedPlaced = false;
+    this.isYellowPlaced = false;
     this.redPos = { x: this.boxROI.x + 40, y: this.boxROI.y + 50 };
     this.yellowPos = { x: this.boxROI.x + 95, y: this.boxROI.y + 50 };
     this.handPos = { x: 30, y: 190 };
@@ -105,11 +109,6 @@ export class VirtualCamera {
 
   public setLidSlideOffset(offset: number) {
     this.lidSlideOffset = Math.max(0, Math.min(1, offset));
-    if (this.lidSlideOffset >= 0.35 && !this.boxOpen) {
-      this.boxOpen = true;
-    } else if (this.lidSlideOffset < 0.2 && this.boxOpen) {
-      this.boxOpen = false;
-    }
     this.render();
   }
 
@@ -340,17 +339,33 @@ export class VirtualCamera {
     ctx.lineWidth = 1;
     ctx.strokeRect(tX, tY, tW, tH);
 
-    // Tray slot insets
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
-    ctx.fillRect(tX + 10, tY + 15, 30, 50);
-    ctx.fillRect(tX + 55, tY + 15, 30, 50);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.strokeRect(tX + 10, tY + 15, 30, 50);
-    ctx.strokeRect(tX + 55, tY + 15, 30, 50);
+    // Tray slot insets: RED TARGET (Left) and YELLOW TARGET (Right)
+    const slotW = Math.round((tW - 16) / 2);
+    const slotH = tH - 26;
 
-    ctx.fillStyle = 'rgba(52, 211, 153, 0.5)';
-    ctx.font = '6px monospace';
-    ctx.fillText('TARGET TRAY', tX + 6, tY + 10);
+    // RED TARGET slot
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
+    ctx.fillRect(tX + 5, tY + 18, slotW, slotH);
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(tX + 5, tY + 18, slotW, slotH);
+    ctx.fillStyle = '#f87171';
+    ctx.font = 'bold 6px monospace';
+    ctx.fillText('RED TARGET', tX + 8, tY + 27);
+
+    // YELLOW TARGET slot
+    ctx.fillStyle = 'rgba(234, 179, 8, 0.12)';
+    ctx.fillRect(tX + 9 + slotW, tY + 18, slotW, slotH);
+    ctx.strokeStyle = '#eab308';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(tX + 9 + slotW, tY + 18, slotW, slotH);
+    ctx.fillStyle = '#fde047';
+    ctx.font = 'bold 6px monospace';
+    ctx.fillText('YELLOW TARGET', tX + 12 + slotW, tY + 27);
+
+    ctx.fillStyle = 'rgba(52, 211, 153, 0.7)';
+    ctx.font = 'bold 6px monospace';
+    ctx.fillText('TARGET RECEPTACLE TRAY', tX + 6, tY + 11);
 
     // 3. Central Containment Box (inside boxROI)
     const bX = this.boxROI.x;
@@ -471,6 +486,26 @@ export class VirtualCamera {
     ctx.arc(rX, rY - 5, 4, 0, Math.PI * 2);
     ctx.fill();
 
+    // If Red is already placed in target, render locked ring & badge (cannot be picked)
+    if (this.isRedPlaced) {
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(rX, rY, objSize / 2 + 4, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#065f46';
+      ctx.fillRect(rX - 24, rY + 12, 48, 12);
+      ctx.strokeStyle = '#34d399';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(rX - 24, rY + 12, 48, 12);
+      ctx.fillStyle = '#6ee7b7';
+      ctx.font = 'bold 7px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('🔒 LOCKED', rX, rY + 21);
+      ctx.textAlign = 'start';
+    }
+
     // 5. Yellow Reagent Object
     // Yellow color: HSV H=30, S=240, V=240 -> RGB(245, 200, 10)
     const yX = this.yellowPos.x;
@@ -497,6 +532,26 @@ export class VirtualCamera {
     ctx.beginPath();
     ctx.arc(yX, yY - 5, 4, 0, Math.PI * 2);
     ctx.fill();
+
+    // If Yellow is placed in target, render locked ring & badge
+    if (this.isYellowPlaced) {
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(yX, yY, objSize / 2 + 4, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#065f46';
+      ctx.fillRect(yX - 24, yY + 12, 48, 12);
+      ctx.strokeStyle = '#34d399';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(yX - 24, yY + 12, 48, 12);
+      ctx.fillStyle = '#6ee7b7';
+      ctx.font = 'bold 7px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('🔒 LOCKED', yX, yY + 21);
+      ctx.textAlign = 'start';
+    }
 
     // 6. Microgravity ambient floating particles
     for (const p of this.particles) {

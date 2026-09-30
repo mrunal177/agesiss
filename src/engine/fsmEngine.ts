@@ -119,10 +119,10 @@ export class FSMEngine {
     this.notify();
   }
 
-  public startExperiment(): { started: boolean; reason?: string } {
+  public startExperiment(skipVoicePrompt: boolean = false): { started: boolean; reason?: string } {
     this.reset();
     const firstStep = this.protocol.steps[0];
-    if (firstStep) {
+    if (firstStep && !skipVoicePrompt) {
       this.voice.speak(firstStep.voice, false, 'guidance');
     }
     this.notify();
@@ -285,9 +285,22 @@ export class FSMEngine {
         this.clearAlert();
 
         const isNowComplete = this.isComplete();
-        const nextVoice = isNowComplete
-          ? 'Experiment complete.'
-          : this.getCurrentExpectedStep()?.voice || 'Next step.';
+        let nextVoice = '';
+        if (isNowComplete) {
+          nextVoice = 'Experiment completed successfully.';
+        } else if (prevIdx === 0) {
+          nextVoice = 'Box opened. Please pick the red object.';
+        } else if (prevIdx === 1) {
+          nextVoice = 'Red object picked. Move it to the red target.';
+        } else if (prevIdx === 2) {
+          nextVoice = 'Red object placed successfully. Please pick the yellow object.';
+        } else if (prevIdx === 3) {
+          nextVoice = 'Yellow object picked. Move it to the yellow target.';
+        } else if (prevIdx === 4) {
+          nextVoice = 'Experiment completed successfully.';
+        } else {
+          nextVoice = this.getCurrentExpectedStep()?.voice || 'Next step.';
+        }
 
         this.voice.speak(nextVoice, false, 'guidance');
 

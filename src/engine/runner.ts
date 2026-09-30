@@ -142,18 +142,26 @@ export class PerceptionRunner {
   public currentHandData: HandData = { present: false, fingertips: [] };
   public currentGestureStatus: GestureStatus = {
     state: 'IDLE',
-    primaryText: 'POINT TO AN OBJECT',
-    secondaryText: 'Use your index finger to target an object',
+    primaryText: 'POINT TO LID',
+    secondaryText: 'Point index finger at the box lid latch',
     targetedObject: null,
     holdingObject: null,
+    isHoldingLid: false,
+    lidSlideProgress: 0,
     indexTip: null,
     thumbTip: null,
     pinchPoint: null,
     pinchDistance: 50,
     isPinching: false,
     inTargetZone: false,
+    inRedTarget: false,
+    inYellowTarget: false,
     handPresent: false,
   };
+
+  // Specimen Lock States (Once placed in target, object cannot be picked again)
+  public isRedPlaced: boolean = false;
+  public isYellowPlaced: boolean = false;
 
   // Calibration
   public isCalibrating: boolean = false;
@@ -363,9 +371,10 @@ export class PerceptionRunner {
 
   public triggerBoxOpen() {
     this.virtualCamera.setBoxOpen(true);
+    this.virtualCamera.setLidSlideOffset(1.0);
     this.detector.requestForceBoxOpen();
     if (this.sessionState === 'idle') {
-      this.fsm.startExperiment();
+      this.fsm.startExperiment(true);
       this.setSessionState('running');
     }
     if (this.fsm.idx === 0) {
@@ -374,6 +383,170 @@ export class PerceptionRunner {
       this.fsm.onAction(ev);
     }
     this.notify();
+  }
+
+  public resetSessionState() {
+    this.isRedPlaced = false;
+    this.isYellowPlaced = false;
+    this.gestureController.isRedPlaced = false;
+    this.gestureController.isYellowPlaced = false;
+    this.gestureController.holdingObject = null;
+    this.virtualCamera.reset();
+    this.detector.reset();
+    this.fsm.reset();
+    this.setSessionState('idle');
+    this.notify();
+  }
+
+  public pickObject(object: 'red' | 'yellow'): boolean {
+    if (object === 'red') {
+      // Once red is dropped in target, it CANNOT be picked again!
+      if (this.isRedPlaced || this.fsm.idx >= 3) {
+        return false;
+      }
+      this.virtualCamera.handHolding = 'red';
+      if (this.sessionState === 'idle') {
+        this.fsm.startExperiment();
+        this.setSessionState('running');
+      }
+      if (this.fsm.idx === 1) {
+        const ev = this.detector.triggerManualPick('red');
+        this.eventsEmittedCount++;
+        this.fsm.onAction(ev);
+      }
+      this.notify();
+      return true;
+    } else if (object === 'yellow') {
+      if (this.isYellowPlaced || this.fsm.idx >= 5) {
+        return false;
+      }
+      this.virtualCamera.handHolding = 'yellow';
+      if (this.sessionState === 'idle') {
+        this.fsm.startExperiment();
+        this.setSessionState('running');
+      }
+      if (this.fsm.idx === 3) {
+        const ev = this.detector.triggerManualPick('yellow');
+        this.eventsEmittedCount++;
+        this.fsm.onAction(ev);
+      }
+      this.notify();
+      return true;
+    }
+    return false;
+  }
+
+  public placeObject(object: 'red' | 'yellow'): boolean {
+    const tX = this.targetROI.x;
+    const tY = this.targetROI.y;
+    const tW = this.targetROI.w;
+    const tH = this.targetROI.h;
+    const rSlotW = Math.round((tW - 16) / 2);
+    const rSlotH = tH - 26;
+    const rTargetX = tX + 5;
+    const rTargetY = tY + 18;
+    const ySlotW = rSlotW;
+    const ySlotH = rSlotH;
+    const yTargetX = tX + 9 + rSlotW;
+    const yTargetY = tY + 18;
+
+    if (object === 'red') {
+      this.isRedPlaced = true;
+      this.gestureController.isRedPlaced = true;
+      this.virtualCamera.isRedPlaced = true;
+      this.virtualCamera.handHolding = 'none';
+
+      // Snap red into center of RED TARGET
+      this.virtualCamera.redPos = {
+        x: Math.round(rTargetX + rSlotW / 2),
+        y: Math.round(rTargetY + rSlotH / 2),
+      };
+
+      if (this.fsm.idx === 1 || this.fsm.idx === 2) {
+        const ev = this.detector.triggerManualPlace('red');
+        this.eventsEmittedCount++;
+        this.fsm.onAction(ev);
+      } else {
+        // Direct voice playback
+        this.voice.speak('Red object placed successfully. Please pick the yellow object.', false, 'guidance');
+      }
+
+      this.playAffirmativeSound();
+      this.notify();
+      return true;
+    } else if (object === 'yellow') {
+      this.isYellowPlaced = true;
+      this.gestureController.isYellowPlaced = true;
+      this.virtualCamera.isYellowPlaced = true;
+      this.virtualCamera.handHolding = 'none';
+
+      // Snap yellow into center of YELLOW TARGET
+      this.virtualCamera.yellowPos = {
+        x: Math.round(yTargetX + ySlotW / 2),
+        y: Math.round(yTargetY + ySlotH / 2),
+      };
+
+      if (this.fsm.idx === 3 || this.fsm.idx === 4) {
+        const ev = this.detector.triggerManualPlace('yellow');
+        this.eventsEmittedCount++;
+        this.fsm.onAction(ev);
+      } else {
+        this.voice.speak('Experiment completed successfully.', false, 'guidance');
+      }
+
+      this.playCelebratorySound();
+      this.notify();
+      return true;
+    }
+    return false;
+  }
+
+  public playAffirmativeSound() {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      if (ctx.state === 'suspended') ctx.resume();
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(523.25, now); // C5
+      osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.12); // E5
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.35);
+    } catch {
+      // AudioContext unavailable
+    }
+  }
+
+  public playCelebratorySound() {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      if (ctx.state === 'suspended') ctx.resume();
+      const now = ctx.currentTime;
+      [523.25, 659.25, 783.99, 1046.5].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const start = now + idx * 0.09;
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, start);
+        gain.gain.setValueAtTime(0.18, start);
+        gain.gain.exponentialRampToValueAtTime(0.01, start + 0.25);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.25);
+      });
+    } catch {
+      // AudioContext unavailable
+    }
   }
 
   public captureClosedBoxBaseline() {
@@ -500,7 +673,8 @@ export class PerceptionRunner {
       }
 
       // Execute Real Webcam Finger Control State Machine:
-      // Point -> Pinch to Pick -> Move -> Release to Place
+      // Touchless Box Lid: Point to Lid -> Pinch to Grab Lid -> Lift / Slide Up -> Release to Open
+      // Touchless Pick & Place: Point -> Pinch to Pick -> Move -> Release to Place
       const gestureRes = this.gestureController.update(
         handRes,
         this.virtualCamera.redPos,
@@ -508,11 +682,17 @@ export class PerceptionRunner {
         this.boxROI,
         this.targetROI,
         this.fsm.idx,
-        this.virtualCamera.boxOpen
+        this.virtualCamera.boxOpen,
+        this.virtualCamera.lidSlideOffset
       );
       this.currentGestureStatus = gestureRes.gestureStatus;
 
-      // 5. While pinching, the RED/YELLOW object MUST FOLLOW THE INDEX FINGERTIP POSITION on the video
+      // Update lid position to follow finger while pinching and sliding lid open
+      if (gestureRes.newLidOffset !== undefined) {
+        this.virtualCamera.setLidSlideOffset(gestureRes.newLidOffset);
+      }
+
+      // While pinching, the RED/YELLOW object MUST FOLLOW THE INDEX FINGERTIP POSITION on the video
       if (gestureRes.newRedPos) {
         this.virtualCamera.redPos = gestureRes.newRedPos;
       }
@@ -525,41 +705,13 @@ export class PerceptionRunner {
         if (gestureRes.actionTrigger === 'OPEN_BOX') {
           this.triggerBoxOpen();
         } else if (gestureRes.actionTrigger === 'PICK_RED') {
-          this.virtualCamera.handHolding = 'red';
-          if (this.sessionState === 'idle') {
-            this.fsm.startExperiment();
-            this.setSessionState('running');
-          }
-          if (this.fsm.idx === 1) {
-            const ev = this.detector.triggerManualPick('red', now);
-            this.eventsEmittedCount++;
-            this.fsm.onAction(ev);
-          }
+          this.pickObject('red');
         } else if (gestureRes.actionTrigger === 'PLACE_RED') {
-          this.virtualCamera.handHolding = 'none';
-          if (this.fsm.idx === 2) {
-            const ev = this.detector.triggerManualPlace('red', now);
-            this.eventsEmittedCount++;
-            this.fsm.onAction(ev);
-          }
+          this.placeObject('red');
         } else if (gestureRes.actionTrigger === 'PICK_YELLOW') {
-          this.virtualCamera.handHolding = 'yellow';
-          if (this.sessionState === 'idle') {
-            this.fsm.startExperiment();
-            this.setSessionState('running');
-          }
-          if (this.fsm.idx === 3) {
-            const ev = this.detector.triggerManualPick('yellow', now);
-            this.eventsEmittedCount++;
-            this.fsm.onAction(ev);
-          }
+          this.pickObject('yellow');
         } else if (gestureRes.actionTrigger === 'PLACE_YELLOW') {
-          this.virtualCamera.handHolding = 'none';
-          if (this.fsm.idx === 4) {
-            const ev = this.detector.triggerManualPlace('yellow', now);
-            this.eventsEmittedCount++;
-            this.fsm.onAction(ev);
-          }
+          this.placeObject('yellow');
         }
       }
 
@@ -1165,6 +1317,9 @@ export class PerceptionRunner {
           ? Math.max(0.7, this.virtualCamera.lidSlideOffset)
           : this.virtualCamera.lidSlideOffset;
 
+        const isLidTargeted = this.currentGestureStatus.targetedObject === 'box' || this.currentGestureStatus.isHoldingLid;
+        const isLidHolding = this.currentGestureStatus.isHoldingLid;
+
         if (lidSlide < 0.95) {
           const lidYOffset = -lidSlide * (bH * 0.9);
           const lidXOffset = -lidSlide * 15;
@@ -1183,37 +1338,70 @@ export class PerceptionRunner {
           ctx.fillStyle = lidGrad;
           ctx.fillRect(curLidX, curLidY, bW, bH);
 
-          // Seam border
-          ctx.strokeStyle = '#38bdf8';
-          ctx.lineWidth = 2;
+          // Highlighting border on the box lid
+          ctx.strokeStyle = isLidHolding ? '#10b981' : isLidTargeted ? '#38bdf8' : 'rgba(56, 189, 248, 0.7)';
+          ctx.lineWidth = isLidHolding ? 3.5 : isLidTargeted ? 2.5 : 2;
           ctx.strokeRect(curLidX, curLidY, bW, bH);
 
           // Interactive central latch handle
-          const hW = 100 * scaleX;
-          const hH = 30 * scaleY;
+          const hW = 110 * scaleX;
+          const hH = 34 * scaleY;
           const hX = curLidX + bW / 2 - hW / 2;
           const hY = curLidY + bH / 2 - hH / 2;
 
-          ctx.fillStyle = '#0284c7';
+          ctx.fillStyle = isLidHolding ? '#059669' : isLidTargeted ? '#0284c7' : '#0369a1';
           ctx.fillRect(hX, hY, hW, hH);
-          ctx.strokeStyle = '#38bdf8';
-          ctx.lineWidth = 2;
+          ctx.strokeStyle = isLidHolding ? '#34d399' : isLidTargeted ? '#7dd3fc' : '#38bdf8';
+          ctx.lineWidth = isLidHolding || isLidTargeted ? 2.5 : 1.5;
           ctx.strokeRect(hX, hY, hW, hH);
+
+          // Corner brackets when lid latch is targeted or held
+          if (isLidTargeted || isLidHolding) {
+            ctx.save();
+            ctx.strokeStyle = isLidHolding ? '#34d399' : '#38bdf8';
+            ctx.lineWidth = 2.5;
+            const b = 6;
+            ctx.beginPath();
+            ctx.moveTo(hX - b, hY); ctx.lineTo(hX - b, hY - b); ctx.lineTo(hX, hY - b);
+            ctx.moveTo(hX + hW + b, hY); ctx.lineTo(hX + hW + b, hY - b); ctx.lineTo(hX + hW, hY - b);
+            ctx.moveTo(hX - b, hY + hH); ctx.lineTo(hX - b, hY + hH + b); ctx.lineTo(hX, hY + hH + b);
+            ctx.moveTo(hX + hW + b, hY + hH); ctx.lineTo(hX + hW + b, hY + hH + b); ctx.lineTo(hX + hW, hY + hH + b);
+            ctx.stroke();
+            ctx.restore();
+          }
 
           // Latch ridges
           ctx.fillStyle = '#ffffff';
-          for (let i = -30; i <= 30; i += 12) {
+          for (let i = -36; i <= 36; i += 12) {
             ctx.fillRect(hX + hW / 2 + i - 1, hY + 6, 2.5, hH - 12);
           }
 
-          ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 11px monospace';
+          // Guidance text right on/above the box lid
+          ctx.save();
+          ctx.font = 'bold 10px monospace';
           ctx.textAlign = 'center';
-          ctx.fillText('▲ WAVE OR PINCH TO OPEN LID ▲', curLidX + bW / 2, curLidY + bH / 2 + 32);
-          ctx.font = 'bold 9px monospace';
-          ctx.fillStyle = '#7dd3fc';
-          ctx.fillText('BOX LATCH (POINT & PINCH)', curLidX + bW / 2, curLidY + bH / 2 - 20);
-          ctx.textAlign = 'start';
+          if (this.currentGestureStatus.state === 'RELEASE_TO_OPEN') {
+            ctx.fillStyle = '#34d399';
+            ctx.fillText('✋ RELEASE PINCH TO OPEN LID', curLidX + bW / 2, curLidY - 10);
+            ctx.fillStyle = '#6ee7b7';
+            ctx.fillText('▲ OPEN POSITION REACHED · RELEASE TO OPEN ▲', curLidX + bW / 2, curLidY + bH / 2 + 34);
+          } else if (isLidHolding) {
+            ctx.fillStyle = '#34d399';
+            ctx.fillText('✊ PINCHING LID · LIFT / SLIDE UP', curLidX + bW / 2, curLidY - 10);
+            ctx.fillStyle = '#6ee7b7';
+            ctx.fillText('▲ LIFT HAND UPWARD TO SLIDE LID OPEN ▲', curLidX + bW / 2, curLidY + bH / 2 + 34);
+          } else if (isLidTargeted) {
+            ctx.fillStyle = '#38bdf8';
+            ctx.fillText('🎯 OVER LID · PINCH TO GRAB LID', curLidX + bW / 2, curLidY - 10);
+            ctx.fillStyle = '#7dd3fc';
+            ctx.fillText('▲ PINCH (THUMB + INDEX) TO GRAB LID ▲', curLidX + bW / 2, curLidY + bH / 2 + 34);
+          } else {
+            ctx.fillStyle = '#7dd3fc';
+            ctx.fillText('👉 POINT TO LID (INDEX FINGER)', curLidX + bW / 2, curLidY - 10);
+            ctx.fillStyle = '#e2e8f0';
+            ctx.fillText('▲ POINT → PINCH → LIFT / SLIDE UP ▲', curLidX + bW / 2, curLidY + bH / 2 + 34);
+          }
+          ctx.restore();
         } else {
           // Open folded lid tab at top
           ctx.fillStyle = 'rgba(55, 65, 81, 0.9)';
@@ -1293,34 +1481,212 @@ export class PerceptionRunner {
       ctx.fillText('BOX REGION', bX + 6, bY + 16);
     }
 
-    // 2. Target Zone (emerald)
+    // 2. Target Zones: After the lid is open, show TWO clear target zones (RED TARGET & YELLOW TARGET)
     const tX = this.targetROI.x * scaleX;
     const tY = this.targetROI.y * scaleY;
     const tW = this.targetROI.w * scaleX;
     const tH = this.targetROI.h * scaleY;
 
-    const isHoldingAny = !!this.currentGestureStatus.holdingObject;
-    if (isHoldingAny) {
-      // 6. Highlight target zone prominently when user is carrying specimen
-      ctx.fillStyle = 'rgba(16, 185, 129, 0.22)';
-      ctx.fillRect(tX, tY, tW, tH);
-      ctx.strokeStyle = '#10B981';
-      ctx.lineWidth = 3.5;
-      ctx.strokeRect(tX, tY, tW, tH);
+    const isLidOpen = this.virtualCamera.boxOpen || this.fsm.idx >= 1 || this.virtualCamera.lidSlideOffset >= 0.65;
 
-      ctx.fillStyle = '#34d399';
-      ctx.font = 'bold 11px monospace';
-      ctx.fillText('🎯 TARGET ZONE: RELEASE PINCH TO PLACE', tX + 6, tY + 20);
-    } else {
-      ctx.strokeStyle = '#10B981';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 4]);
-      ctx.strokeRect(tX, tY, tW, tH);
+    // Render outer target console enclosure
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+    ctx.fillRect(tX, tY, tW, tH);
+    ctx.strokeStyle = isLidOpen ? '#38bdf8' : 'rgba(56, 189, 248, 0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(tX, tY, tW, tH);
+
+    // Enclosure Header
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.95)';
+    ctx.fillRect(tX, tY, tW, 16);
+    ctx.fillStyle = isLidOpen ? '#38bdf8' : '#64748b';
+    ctx.font = 'bold 9px monospace';
+    ctx.fillText(isLidOpen ? 'TARGET ZONES (MICROGRAVITY DROP BAYS)' : 'TARGET ZONES (STANDBY: OPEN BOX LID FIRST)', tX + 6, tY + 11);
+
+    if (isLidOpen) {
+      // Calculate coordinates for TWO CLEAR TARGET ZONES:
+      // RED TARGET on left, YELLOW TARGET on right
+      const bayPadding = 4;
+      const bayGap = 6;
+      const bayW = Math.round((tW - bayPadding * 2 - bayGap) / 2);
+      const bayH = tH - 22;
+      const bayY = tY + 18;
+
+      const rBayX = tX + bayPadding;
+      const yBayX = rBayX + bayW + bayGap;
+
+      const isHoldingRed = this.currentGestureStatus.holdingObject === 'red';
+      const isRedTargetReached = this.currentGestureStatus.inRedTarget;
+      const isRedPlaced = this.isRedPlaced || this.fsm.idx >= 3 || this.detector.getObjectState('red') === 'TARGET_ZONE';
+
+      const isHoldingYellow = this.currentGestureStatus.holdingObject === 'yellow';
+      const isYellowTargetReached = this.currentGestureStatus.inYellowTarget;
+      const isYellowPlaced = this.isYellowPlaced || this.fsm.idx >= 5 || this.detector.getObjectState('yellow') === 'TARGET_ZONE';
+
+      // ---------------------------------------------------------------
+      // BAY 1: RED TARGET
+      // ---------------------------------------------------------------
+      ctx.save();
+      // Background tint
+      ctx.fillStyle = isRedPlaced
+        ? 'rgba(16, 185, 129, 0.22)'
+        : isRedTargetReached
+        ? 'rgba(239, 68, 68, 0.38)'
+        : isHoldingRed
+        ? 'rgba(239, 68, 68, 0.24)'
+        : 'rgba(239, 68, 68, 0.12)';
+      ctx.fillRect(rBayX, bayY, bayW, bayH);
+
+      // Distinct colored border / outline
+      ctx.strokeStyle = isRedPlaced ? '#10b981' : '#ef4444';
+      ctx.lineWidth = isHoldingRed || isRedPlaced ? 3 : 2;
+      if (!isHoldingRed && !isRedPlaced) {
+        ctx.setLineDash([5, 3]);
+      }
+      ctx.strokeRect(rBayX, bayY, bayW, bayH);
       ctx.setLineDash([]);
 
-      ctx.fillStyle = '#10B981';
-      ctx.font = 'bold 11px monospace';
-      ctx.fillText('TARGET ZONE', tX + 6, tY + 16);
+      // Corner bracket highlight accents when holding red
+      if (isHoldingRed || isRedTargetReached) {
+        ctx.strokeStyle = '#f87171';
+        ctx.lineWidth = 2.5;
+        const cb = 5;
+        ctx.beginPath();
+        ctx.moveTo(rBayX - cb, bayY + 12); ctx.lineTo(rBayX - cb, bayY - cb); ctx.lineTo(rBayX + 12, bayY - cb);
+        ctx.moveTo(rBayX + bayW + cb, bayY + 12); ctx.lineTo(rBayX + bayW + cb, bayY - cb); ctx.lineTo(rBayX + bayW - 12, bayY - cb);
+        ctx.moveTo(rBayX - cb, bayY + bayH - 12); ctx.lineTo(rBayX - cb, bayY + bayH + cb); ctx.lineTo(rBayX + 12, bayY + bayH + cb);
+        ctx.moveTo(rBayX + bayW + cb, bayY + bayH - 12); ctx.lineTo(rBayX + bayW + cb, bayY + bayH + cb); ctx.lineTo(rBayX + bayW - 12, bayY + bayH + cb);
+        ctx.stroke();
+      }
+
+      // Title Banner Tag: "RED TARGET"
+      ctx.fillStyle = isRedPlaced ? '#059669' : '#dc2626';
+      ctx.fillRect(rBayX, bayY, bayW, 14);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('🔴 RED TARGET', rBayX + bayW / 2, bayY + 10);
+
+      // Central target reticle & crosshair
+      const rcX = rBayX + bayW / 2;
+      const rcY = bayY + 14 + (bayH - 14) / 2;
+
+      ctx.strokeStyle = isRedPlaced ? '#10b981' : '#ef4444';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(rcX, rcY, 13, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(rcX - 7, rcY); ctx.lineTo(rcX + 7, rcY);
+      ctx.moveTo(rcX, rcY - 7); ctx.lineTo(rcX, rcY + 7);
+      ctx.stroke();
+
+      // Clear dynamic action status label
+      ctx.font = 'bold 8.5px monospace';
+      if (isRedPlaced) {
+        ctx.fillStyle = '#34d399';
+        ctx.fillText('✓ RED PLACED · LOCKED', rcX, rcY + 20);
+      } else if (isRedTargetReached) {
+        ctx.fillStyle = '#fef08a';
+        ctx.fillText('RELEASE PINCH', rcX, rcY + 20);
+      } else if (isHoldingRed) {
+        ctx.fillStyle = '#fca5a5';
+        ctx.fillText('PLACE RED HERE', rcX, rcY + 20);
+      } else {
+        ctx.fillStyle = '#f87171';
+        ctx.fillText('RED SPECIMEN', rcX, rcY + 20);
+      }
+      ctx.restore();
+
+      // ---------------------------------------------------------------
+      // BAY 2: YELLOW TARGET
+      // ---------------------------------------------------------------
+      ctx.save();
+      // Background tint
+      ctx.fillStyle = isYellowPlaced
+        ? 'rgba(16, 185, 129, 0.22)'
+        : isYellowTargetReached
+        ? 'rgba(234, 179, 8, 0.38)'
+        : isHoldingYellow
+        ? 'rgba(234, 179, 8, 0.24)'
+        : 'rgba(234, 179, 8, 0.12)';
+      ctx.fillRect(yBayX, bayY, bayW, bayH);
+
+      // Distinct colored border / outline
+      ctx.strokeStyle = isYellowPlaced ? '#10b981' : '#eab308';
+      ctx.lineWidth = isHoldingYellow || isYellowPlaced ? 3 : 2;
+      if (!isHoldingYellow && !isYellowPlaced) {
+        ctx.setLineDash([5, 3]);
+      }
+      ctx.strokeRect(yBayX, bayY, bayW, bayH);
+      ctx.setLineDash([]);
+
+      // Corner bracket highlight accents when holding yellow
+      if (isHoldingYellow || isYellowTargetReached) {
+        ctx.strokeStyle = '#facc15';
+        ctx.lineWidth = 2.5;
+        const cb = 5;
+        ctx.beginPath();
+        ctx.moveTo(yBayX - cb, bayY + 12); ctx.lineTo(yBayX - cb, bayY - cb); ctx.lineTo(yBayX + 12, bayY - cb);
+        ctx.moveTo(yBayX + bayW + cb, bayY + 12); ctx.lineTo(yBayX + bayW + cb, bayY - cb); ctx.lineTo(yBayX + bayW - 12, bayY - cb);
+        ctx.moveTo(yBayX - cb, bayY + bayH - 12); ctx.lineTo(yBayX - cb, bayY + bayH + cb); ctx.lineTo(yBayX + 12, bayY + bayH + cb);
+        ctx.moveTo(yBayX + bayW + cb, bayY + bayH - 12); ctx.lineTo(yBayX + bayW + cb, bayY + bayH + cb); ctx.lineTo(yBayX + bayW - 12, bayY + bayH + cb);
+        ctx.stroke();
+      }
+
+      // Title Banner Tag: "YELLOW TARGET"
+      ctx.fillStyle = isYellowPlaced ? '#059669' : '#ca8a04';
+      ctx.fillRect(yBayX, bayY, bayW, 14);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('🟡 YELLOW TARGET', yBayX + bayW / 2, bayY + 10);
+
+      // Central target reticle & crosshair
+      const ycX = yBayX + bayW / 2;
+      const ycY = bayY + 14 + (bayH - 14) / 2;
+
+      ctx.strokeStyle = isYellowPlaced ? '#10b981' : '#eab308';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(ycX, ycY, 13, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(ycX - 7, ycY); ctx.lineTo(ycX + 7, ycY);
+      ctx.moveTo(ycX, ycY - 7); ctx.lineTo(ycX, ycY + 7);
+      ctx.stroke();
+
+      // Clear dynamic action status label
+      ctx.font = 'bold 8.5px monospace';
+      if (isYellowPlaced) {
+        ctx.fillStyle = '#34d399';
+        ctx.fillText('✓ YELLOW PLACED · LOCKED', ycX, ycY + 20);
+      } else if (isYellowTargetReached) {
+        ctx.fillStyle = '#fef08a';
+        ctx.fillText('RELEASE PINCH', ycX, ycY + 20);
+      } else if (isHoldingYellow) {
+        ctx.fillStyle = '#fef08a';
+        ctx.fillText('PLACE YELLOW HERE', ycX, ycY + 20);
+      } else {
+        ctx.fillStyle = '#fde047';
+        ctx.fillText('YELLOW REAGENT', ycX, ycY + 20);
+      }
+      ctx.restore();
+    } else {
+      // Standby view before box is opened
+      ctx.save();
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(tX + 4, tY + 20, tW - 8, tH - 24);
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('LOCKED · OPEN LID FIRST', tX + tW / 2, tY + tH / 2 + 8);
+      ctx.restore();
     }
 
     // 3. Tracked Objects (Bounding boxes, label, state chip, payload-relative x/y)
@@ -1377,8 +1743,23 @@ export class PerceptionRunner {
       const fy = this.currentHandData.indexTip.y * scaleY;
       const isPinching = this.currentGestureStatus.isPinching;
 
-      // Draw tether line between fingertip and held specimen
-      if (this.currentGestureStatus.holdingObject === 'red') {
+      // Draw tether line between fingertip and held specimen or lid latch
+      if (this.currentGestureStatus.isHoldingLid) {
+        const lidYOffset = -this.virtualCamera.lidSlideOffset * (bH * 0.9);
+        const lidXOffset = -this.virtualCamera.lidSlideOffset * 15;
+        const curLidY = bY + lidYOffset;
+        const curLidX = bX + lidXOffset;
+        const lx = curLidX + bW / 2;
+        const ly = curLidY + bH / 2;
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(fx, fy);
+        ctx.lineTo(lx, ly);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (this.currentGestureStatus.holdingObject === 'red') {
         const rx = this.virtualCamera.redPos.x * scaleX;
         const ry = this.virtualCamera.redPos.y * scaleY;
         ctx.strokeStyle = '#10b981';
@@ -1475,13 +1856,23 @@ export class PerceptionRunner {
     ctx.lineWidth = 1;
     ctx.strokeRect(hudX, hudY, hudW, hudH);
 
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 10px monospace';
-    ctx.fillText('✋ WEBCAM FINGER CONTROL:', hudX + 8, hudY + 17);
+    if (this.fsm.idx === 0 && !this.virtualCamera.boxOpen) {
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText('✋ TOUCHLESS BOX-LID OPENING:', hudX + 8, hudY + 17);
 
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = '500 10px monospace';
-    ctx.fillText('Point → Pinch to Pick → Move → Release to Place.', hudX + 172, hudY + 17);
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = '500 10px monospace';
+      ctx.fillText('"POINT TO LID" → "PINCH TO GRAB LID" → "LIFT / SLIDE UP" → "RELEASE TO OPEN"', hudX + 195, hudY + 17);
+    } else {
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText('✋ WEBCAM FINGER CONTROL:', hudX + 8, hudY + 17);
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = '500 10px monospace';
+      ctx.fillText('POINT → PINCH TO PICK → MOVE HAND → OBJECT FOLLOWS FINGER → RELEASE → PLACE', hudX + 172, hudY + 17);
+    }
 
     // Right status badge
     const badgeText = this.currentGestureStatus.primaryText;

@@ -305,18 +305,23 @@ export const useAegisStore = create<AegisState>((set, get) => {
       switch (stepName) {
         case 'OPEN':
           await runner.virtualCamera.executeStepOpenBox();
+          runner.triggerBoxOpen();
           break;
         case 'PICK_RED':
+          runner.pickObject('red');
           await runner.virtualCamera.executeStepPickRed();
           break;
         case 'PLACE_RED':
           await runner.virtualCamera.executeStepPlaceRed();
+          runner.placeObject('red');
           break;
         case 'PICK_YELLOW':
+          runner.pickObject('yellow');
           await runner.virtualCamera.executeStepPickYellow();
           break;
         case 'PLACE_YELLOW':
           await runner.virtualCamera.executeStepPlaceYellow();
+          runner.placeObject('yellow');
           break;
         case 'WAVE_HAND':
           await runner.virtualCamera.waveHand();
@@ -420,10 +425,7 @@ export const useAegisStore = create<AegisState>((set, get) => {
     },
 
     resetSession: () => {
-      runner.fsm.reset();
-      runner.detector.reset();
-      runner.virtualCamera.reset();
-      runner.setSessionState('idle');
+      runner.resetSessionState();
     },
 
     clearAlert: () => {

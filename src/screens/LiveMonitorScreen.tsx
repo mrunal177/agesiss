@@ -156,17 +156,6 @@ export const LiveMonitorScreen: React.FC = () => {
             </button>
           )}
 
-          {/* Step 1 Quick Open Action Button */}
-          {fsmIdx === 0 && sessionState === 'running' && (
-            <button
-              onClick={triggerBoxOpen}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-mono font-bold transition-all shadow-xs animate-pulse cursor-pointer"
-              title="Instantly mark box opened (Hotkey: Spacebar or O)"
-            >
-              <span>Open Box Now</span>
-            </button>
-          )}
-
           {sessionState === 'paused' && (
             <button
               onClick={resumeSession}

@@ -114,6 +114,22 @@ export class EventDetector {
   public triggerBoxOpen(t: number = performance.now()): ActionEvent {
     this.boxOpenFired = true;
     this.forceOpenRequested = false;
+    const rObj = this.objects.get('red');
+    if (rObj) {
+      rObj.previousCommittedState = rObj.committedState;
+      rObj.committedState = 'INSIDE_BOX';
+      rObj.currentCandidateState = 'INSIDE_BOX';
+      rObj.candidateFrames = 10;
+      rObj.visible = true;
+    }
+    const yObj = this.objects.get('yellow');
+    if (yObj) {
+      yObj.previousCommittedState = yObj.committedState;
+      yObj.committedState = 'INSIDE_BOX';
+      yObj.currentCandidateState = 'INSIDE_BOX';
+      yObj.candidateFrames = 10;
+      yObj.visible = true;
+    }
     return {
       type: 'OPEN',
       object: 'box',
@@ -134,6 +150,8 @@ export class EventDetector {
       internalObj.committedState = 'HELD';
       internalObj.currentCandidateState = 'HELD';
       internalObj.candidateFrames = 10;
+      internalObj.contact = true;
+      internalObj.visible = true;
     }
     return {
       type: 'PICK',
@@ -155,6 +173,8 @@ export class EventDetector {
       internalObj.committedState = 'TARGET_ZONE';
       internalObj.currentCandidateState = 'TARGET_ZONE';
       internalObj.candidateFrames = 10;
+      internalObj.contact = false;
+      internalObj.visible = true;
     }
     return {
       type: 'PLACE',

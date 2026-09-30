@@ -20,6 +20,7 @@ import {
   Box,
   RefreshCw,
   Video,
+  Volume2,
 } from 'lucide-react';
 
 interface VideoStageProps {
@@ -101,6 +102,10 @@ export const VideoStage: React.FC<VideoStageProps> = () => {
   >(null);
   const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [initialROI, setInitialROI] = useState<{ x: number; y: number; w: number; h: number }>({ x: 0, y: 0, w: 0, h: 0 });
+
+  // Interactive specimen and lid dragging state
+  const [draggedObject, setDraggedObject] = useState<'none' | 'red' | 'yellow'>('none');
+  const [hoverCursor, setHoverCursor] = useState<'default' | 'pointer' | 'grab' | 'not-allowed'>('default');
 
   // Connect DOM elements to PerceptionRunner outside React
   useEffect(() => {
@@ -303,40 +308,184 @@ export const VideoStage: React.FC<VideoStageProps> = () => {
       }
       return;
     }
-    // When not calibrating ROIs, mouse clicking & dragging on objects is completely disabled.
-    // Interaction is driven entirely by real webcam finger tracking (Point → Pinch → Move → Release).
-  };
+    // When not calibrating ROIs, handle interactive mouse clicking & dragging for Specimens and Lid
+    const px = normX * CONFIG.PROC_W;
+    const py = normY * CONFIG.PROC_H;
 
-  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!draggingTarget || !overlayCanvasRef.current || !isCalibrating) return;
-    const rect = overlayCanvasRef.current.getBoundingClientRect();
-    const curX = ((e.clientX - rect.left) / rect.width) * CONFIG.PROC_W;
-    const curY = ((e.clientY - rect.top) / rect.height) * CONFIG.PROC_H;
+    // 1. Check click on Lid Latch (to open box)
+    const bX = boxROI.x;
+    const bY = boxROI.y;
+    const bW = boxROI.w;
+    const bH = boxROI.h;
+    const lidSlide = runner.virtualCamera.lidSlideOffset;
+    const curLidY = bY - lidSlide * (bH * 0.9);
+    const curLidX = bX - lidSlide * 15;
+    const latchCenterX = curLidX + bW / 2;
+    const latchCenterY = curLidY + bH / 2;
 
-    const dx = curX - dragStartPos.x;
-    const dy = curY - dragStartPos.y;
+    if (!runner.virtualCamera.boxOpen && Math.hypot(px - latchCenterX, py - latchCenterY) <= 45) {
+      triggerBoxOpen();
+      return;
+    }
 
-    if (draggingTarget === 'box') {
-      const newX = Math.max(0, Math.min(CONFIG.PROC_W - initialROI.w, Math.round(initialROI.x + dx)));
-      const newY = Math.max(0, Math.min(CONFIG.PROC_H - initialROI.h, Math.round(initialROI.y + dy)));
-      setROIs({ ...boxROI, x: newX, y: newY }, targetROI);
-    } else if (draggingTarget === 'box_handle') {
-      const newW = Math.max(40, Math.min(CONFIG.PROC_W - initialROI.x, Math.round(initialROI.w + dx)));
-      const newH = Math.max(40, Math.min(CONFIG.PROC_H - initialROI.y, Math.round(initialROI.h + dy)));
-      setROIs({ ...boxROI, w: newW, h: newH }, targetROI);
-    } else if (draggingTarget === 'target') {
-      const newX = Math.max(0, Math.min(CONFIG.PROC_W - initialROI.w, Math.round(initialROI.x + dx)));
-      const newY = Math.max(0, Math.min(CONFIG.PROC_H - initialROI.h, Math.round(initialROI.y + dy)));
-      setROIs(boxROI, { ...targetROI, x: newX, y: newY });
-    } else if (draggingTarget === 'target_handle') {
-      const newW = Math.max(40, Math.min(CONFIG.PROC_W - initialROI.x, Math.round(initialROI.w + dx)));
-      const newH = Math.max(40, Math.min(CONFIG.PROC_H - initialROI.y, Math.round(initialROI.h + dy)));
-      setROIs(boxROI, { ...targetROI, w: newW, h: newH });
+    // 2. Check click on Red Specimen
+    const distToRed = Math.hypot(px - runner.virtualCamera.redPos.x, py - runner.virtualCamera.redPos.y);
+    if (distToRed <= 26) {
+      // "once the red is droped in the target it should be not avaible to pick"
+      if (runner.isRedPlaced || runner.fsm.idx >= 3) {
+        // Red is already placed and locked in the target zone! Cannot be picked!
+        return;
+      }
+      setDraggedObject('red');
+      runner.pickObject('red');
+      runner.virtualCamera.redPos = { x: Math.round(px), y: Math.round(py) };
+      return;
+    }
+
+    // 3. Check click on Yellow Specimen
+    const distToYellow = Math.hypot(px - runner.virtualCamera.yellowPos.x, py - runner.virtualCamera.yellowPos.y);
+    if (distToYellow <= 26) {
+      if (runner.isYellowPlaced || runner.fsm.idx >= 5) {
+        // Yellow is already placed and locked!
+        return;
+      }
+      // Must place Red before Yellow can be picked
+      if (!runner.isRedPlaced && runner.fsm.idx < 3) {
+        return;
+      }
+      setDraggedObject('yellow');
+      runner.pickObject('yellow');
+      runner.virtualCamera.yellowPos = { x: Math.round(px), y: Math.round(py) };
+      return;
     }
   };
 
-  const handleCanvasMouseUp = () => {
-    setDraggingTarget(null);
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = overlayCanvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const curX = ((e.clientX - rect.left) / rect.width) * CONFIG.PROC_W;
+    const curY = ((e.clientY - rect.top) / rect.height) * CONFIG.PROC_H;
+
+    if (isCalibrating && draggingTarget) {
+      const dx = curX - dragStartPos.x;
+      const dy = curY - dragStartPos.y;
+
+      if (draggingTarget === 'box') {
+        const newX = Math.max(0, Math.min(CONFIG.PROC_W - initialROI.w, Math.round(initialROI.x + dx)));
+        const newY = Math.max(0, Math.min(CONFIG.PROC_H - initialROI.h, Math.round(initialROI.y + dy)));
+        setROIs({ ...boxROI, x: newX, y: newY }, targetROI);
+      } else if (draggingTarget === 'box_handle') {
+        const newW = Math.max(40, Math.min(CONFIG.PROC_W - initialROI.x, Math.round(initialROI.w + dx)));
+        const newH = Math.max(40, Math.min(CONFIG.PROC_H - initialROI.y, Math.round(initialROI.h + dy)));
+        setROIs({ ...boxROI, w: newW, h: newH }, targetROI);
+      } else if (draggingTarget === 'target') {
+        const newX = Math.max(0, Math.min(CONFIG.PROC_W - initialROI.w, Math.round(initialROI.x + dx)));
+        const newY = Math.max(0, Math.min(CONFIG.PROC_H - initialROI.h, Math.round(initialROI.y + dy)));
+        setROIs(boxROI, { ...targetROI, x: newX, y: newY });
+      } else if (draggingTarget === 'target_handle') {
+        const newW = Math.max(40, Math.min(CONFIG.PROC_W - initialROI.x, Math.round(initialROI.w + dx)));
+        const newH = Math.max(40, Math.min(CONFIG.PROC_H - initialROI.y, Math.round(initialROI.h + dy)));
+        setROIs(boxROI, { ...targetROI, w: newW, h: newH });
+      }
+      return;
+    }
+
+    // Handle dragging red or yellow object
+    if (draggedObject === 'red') {
+      runner.virtualCamera.redPos = {
+        x: Math.max(10, Math.min(CONFIG.PROC_W - 10, Math.round(curX))),
+        y: Math.max(10, Math.min(CONFIG.PROC_H - 10, Math.round(curY))),
+      };
+      return;
+    }
+
+    if (draggedObject === 'yellow') {
+      runner.virtualCamera.yellowPos = {
+        x: Math.max(10, Math.min(CONFIG.PROC_W - 10, Math.round(curX))),
+        y: Math.max(10, Math.min(CONFIG.PROC_H - 10, Math.round(curY))),
+      };
+      return;
+    }
+
+    // Update hover cursor when moving over interactive elements
+    const distToRed = Math.hypot(curX - runner.virtualCamera.redPos.x, curY - runner.virtualCamera.redPos.y);
+    const distToYellow = Math.hypot(curX - runner.virtualCamera.yellowPos.x, curY - runner.virtualCamera.yellowPos.y);
+
+    const bX = boxROI.x;
+    const bY = boxROI.y;
+    const bW = boxROI.w;
+    const bH = boxROI.h;
+    const lidSlide = runner.virtualCamera.lidSlideOffset;
+    const curLidY = bY - lidSlide * (bH * 0.9);
+    const curLidX = bX - lidSlide * 15;
+    const latchCenterX = curLidX + bW / 2;
+    const latchCenterY = curLidY + bH / 2;
+    const distToLatch = Math.hypot(curX - latchCenterX, curY - latchCenterY);
+
+    if (distToRed <= 24) {
+      if (runner.isRedPlaced || runner.fsm.idx >= 3) {
+        setHoverCursor('not-allowed');
+      } else {
+        setHoverCursor('grab');
+      }
+    } else if (distToYellow <= 24) {
+      if (runner.isYellowPlaced || runner.fsm.idx >= 5) {
+        setHoverCursor('not-allowed');
+      } else if (runner.isRedPlaced || runner.fsm.idx >= 3) {
+        setHoverCursor('grab');
+      } else {
+        setHoverCursor('not-allowed');
+      }
+    } else if (!runner.virtualCamera.boxOpen && distToLatch <= 40) {
+      setHoverCursor('pointer');
+    } else {
+      setHoverCursor('default');
+    }
+  };
+
+  const handleCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isCalibrating) {
+      setDraggingTarget(null);
+      return;
+    }
+
+    const canvas = overlayCanvasRef.current;
+    if (!canvas) {
+      setDraggedObject('none');
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const curX = ((e.clientX - rect.left) / rect.width) * CONFIG.PROC_W;
+    const curY = ((e.clientY - rect.top) / rect.height) * CONFIG.PROC_H;
+
+    // Check if drop location is within target region (with 25px generous boundary tolerance)
+    const inTargetRegion =
+      curX >= targetROI.x - 25 &&
+      curX <= targetROI.x + targetROI.w + 25 &&
+      curY >= targetROI.y - 25 &&
+      curY <= targetROI.y + targetROI.h + 25;
+
+    if (draggedObject === 'red') {
+      if (inTargetRegion) {
+        // Successfully dropped in target region!
+        runner.placeObject('red');
+      } else {
+        // Dropped outside target zone: user can pick again
+        runner.virtualCamera.handHolding = 'none';
+      }
+      setDraggedObject('none');
+    } else if (draggedObject === 'yellow') {
+      if (inTargetRegion) {
+        // Successfully dropped in target region!
+        runner.placeObject('yellow');
+      } else {
+        runner.virtualCamera.handHolding = 'none';
+      }
+      setDraggedObject('none');
+    }
   };
 
   const activateCameraDirectly = () => {
@@ -383,6 +532,21 @@ export const VideoStage: React.FC<VideoStageProps> = () => {
           </span>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Audio Message Playback Button */}
+          <button
+            onClick={() => {
+              if (typeof window !== 'undefined' && window.speechSynthesis) {
+                window.speechSynthesis.resume();
+              }
+              runner.voice.replayLast();
+            }}
+            title="Replay Audio Guidance Voice"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-white hover:bg-slate-100 text-slate-800 text-xs font-mono font-medium border border-slate-300 shadow-2xs transition-colors cursor-pointer"
+          >
+            <Volume2 className="w-3.5 h-3.5 text-cyan-600" />
+            <span>Play Audio</span>
+          </button>
+
           {/* Quick Camera Toggle Button */}
           {sourceMode !== 'live' ? (
             <button
@@ -397,18 +561,6 @@ export const VideoStage: React.FC<VideoStageProps> = () => {
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>Webcam Active</span>
             </div>
-          )}
-
-          {/* Step 1 Quick Open Button */}
-          {fsmIdx === 0 && (
-            <button
-              onClick={triggerBoxOpen}
-              className="flex items-center gap-1.5 px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-mono font-bold shadow-xs transition-transform active:scale-95 animate-pulse cursor-pointer"
-              title="Instantly mark box opened (Hotkey: Spacebar or O)"
-            >
-              <Box className="w-3.5 h-3.5" />
-              <span>Open Box Now</span>
-            </button>
           )}
 
           <span className="text-[11px] text-slate-600 hidden md:inline">
@@ -429,82 +581,65 @@ export const VideoStage: React.FC<VideoStageProps> = () => {
         </div>
       </div>
 
-      {/* DEDICATED WEBCAM "OPEN THE BOX" INSTRUCTION BANNER (Step 1) */}
+      {/* DEDICATED TOUCHLESS "OPEN THE BOX" WEBCAM GUIDANCE BANNER (Step 1) */}
       {fsmIdx === 0 && (
         <div className="z-20 bg-linear-to-r from-cyan-50 via-sky-50 to-emerald-50 border-b border-cyan-200 p-3 sm:p-4 text-xs font-mono text-slate-800 shadow-xs">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="space-y-1.5 flex-1 min-w-[280px]">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="px-2 py-0.5 rounded bg-cyan-700 text-white font-bold text-[10px] uppercase tracking-wider">
-                  Step 1 Webcam Guide
+                  Touchless Chamber Opening
                 </span>
                 <span className="font-bold text-slate-900 font-sans text-sm flex items-center gap-1.5">
                   <Box className="w-4 h-4 text-cyan-600" />
-                  How to Open the Box Using Your Webcam:
+                  Webcam Hand Gesture Sequence:
                 </span>
               </div>
-              <p className="text-[11px] font-sans text-slate-600">
-                The optical sensor is watching the <strong className="text-cyan-800">central cyan Box Region</strong>. You can use any of these easy actions:
-              </p>
-
-              {/* 4 Clear Methods */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 pt-1 font-sans text-slate-700 text-xs">
-                <div className="flex items-start gap-2 p-2 rounded-lg bg-white/90 border border-cyan-300 shadow-2xs ring-1 ring-cyan-400">
-                  <span className="text-lg leading-none shrink-0">✋</span>
-                  <div>
-                    <strong className="block text-cyan-900 font-semibold text-xs">1. Point &amp; Pinch Lid</strong>
-                    <span className="text-[11px] text-slate-600 leading-tight block mt-0.5">
-                      Point index finger at the blue <strong>LID LATCH</strong> and pinch (or wave) to open!
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-2 p-2 rounded-lg bg-white/90 border border-cyan-200 shadow-2xs">
-                  <span className="text-lg leading-none shrink-0">👋</span>
-                  <div>
-                    <strong className="block text-slate-900 font-semibold text-xs">2. Wave Hand</strong>
-                    <span className="text-[11px] text-slate-600 leading-tight block mt-0.5">
-                      Wave your hand across the cyan Box Region in the center.
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-2 p-2 rounded-lg bg-white/90 border border-cyan-200 shadow-2xs">
-                  <span className="text-lg leading-none shrink-0">✋</span>
-                  <div>
-                    <strong className="block text-slate-900 font-semibold text-xs">3. Show Open Palm</strong>
-                    <span className="text-[11px] text-slate-600 leading-tight block mt-0.5">
-                      Hold an open palm towards camera inside the cyan box.
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-2 p-2 rounded-lg bg-white/90 border border-cyan-200 shadow-2xs">
-                  <span className="text-lg leading-none shrink-0">📖</span>
-                  <div>
-                    <strong className="block text-slate-900 font-semibold text-xs">4. Physical Container</strong>
-                    <span className="text-[11px] text-slate-600 leading-tight block mt-0.5">
-                      Open a physical box lid, notebook, or folder in view.
-                    </span>
-                  </div>
-                </div>
-              </div>
+              <span className="text-[11px] text-cyan-800 font-bold bg-white px-2 py-0.5 rounded border border-cyan-200">
+                NO MOUSE REQUIRED · USE WEBCAM HAND
+              </span>
             </div>
 
-            {/* Direct 1-Click Action Button & Hotkey */}
-            <div className="flex flex-col items-end gap-1.5 shrink-0 self-center">
-              <button
-                onClick={triggerBoxOpen}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono font-bold text-xs shadow-md shadow-emerald-900/10 transition-all active:scale-95 cursor-pointer ring-2 ring-emerald-300 ring-offset-1"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Open Box Now (1-Click)</span>
-              </button>
-              <div className="text-[10px] text-slate-500 font-mono text-right flex items-center gap-1">
-                <span>Or press keyboard:</span>
-                <kbd className="px-1.5 py-0.5 rounded bg-white text-slate-800 font-bold border border-slate-300 shadow-2xs">Space</kbd>
-                <span>or</span>
-                <kbd className="px-1.5 py-0.5 rounded bg-white text-slate-800 font-bold border border-slate-300 shadow-2xs">O</kbd>
+            {/* 4-Step Touchless Guidance */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 pt-1 font-sans text-slate-700 text-xs">
+              <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-white border border-cyan-300 shadow-2xs ring-1 ring-cyan-400">
+                <span className="text-xl leading-none shrink-0">👉</span>
+                <div>
+                  <strong className="block text-cyan-900 font-semibold text-xs">1. POINT TO LID</strong>
+                  <span className="text-[11px] text-slate-600 leading-tight block mt-0.5">
+                    Point index finger at the virtual <strong>BOX LID</strong> latch.
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-white border border-cyan-300 shadow-2xs ring-1 ring-cyan-400">
+                <span className="text-xl leading-none shrink-0">🤏</span>
+                <div>
+                  <strong className="block text-cyan-900 font-semibold text-xs">2. PINCH TO GRAB LID</strong>
+                  <span className="text-[11px] text-slate-600 leading-tight block mt-0.5">
+                    Pinch thumb and index finger together to grab the lid.
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-white border border-cyan-300 shadow-2xs ring-1 ring-cyan-400">
+                <span className="text-xl leading-none shrink-0">⬆️</span>
+                <div>
+                  <strong className="block text-cyan-900 font-semibold text-xs">3. LIFT / SLIDE UP</strong>
+                  <span className="text-[11px] text-slate-600 leading-tight block mt-0.5">
+                    Move hand upward while pinching to slide lid open.
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-white border border-emerald-300 shadow-2xs ring-1 ring-emerald-400">
+                <span className="text-xl leading-none shrink-0">✋</span>
+                <div>
+                  <strong className="block text-emerald-900 font-semibold text-xs">4. RELEASE TO OPEN</strong>
+                  <span className="text-[11px] text-slate-600 leading-tight block mt-0.5">
+                    Release pinch when open to advance to <strong>PICK_RED</strong>.
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -682,12 +817,19 @@ export const VideoStage: React.FC<VideoStageProps> = () => {
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}
           onMouseUp={handleCanvasMouseUp}
-          className={`absolute inset-0 w-full h-full object-contain ${
+          onMouseLeave={handleCanvasMouseUp}
+          className={`absolute inset-0 w-full h-full object-contain pointer-events-auto z-10 ${
             isCalibrating
-              ? 'pointer-events-auto cursor-crosshair z-10'
-              : sourceMode !== 'replay'
-              ? 'pointer-events-auto cursor-grab active:cursor-grabbing z-10'
-              : 'pointer-events-none z-10'
+              ? 'cursor-crosshair'
+              : draggedObject !== 'none'
+              ? 'cursor-grabbing'
+              : hoverCursor === 'grab'
+              ? 'cursor-grab'
+              : hoverCursor === 'pointer'
+              ? 'cursor-pointer'
+              : hoverCursor === 'not-allowed'
+              ? 'cursor-not-allowed'
+              : 'cursor-default'
           }`}
         />
 

@@ -132,18 +132,33 @@ export class VoiceQueue {
     }
 
     try {
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.volume = this.volume;
       utterance.rate = 1.0;
       utterance.pitch = 1.0;
       utterance.lang = 'en-US';
 
-      utterance.onend = () => {
-        if (onEnd) onEnd();
+      // Retain reference on window to prevent Chromium garbage collection bug
+      (window as any).__lastUtterance = utterance;
+
+      let called = false;
+      const done = () => {
+        if (!called) {
+          called = true;
+          (window as any).__lastUtterance = null;
+          if (onEnd) onEnd();
+        }
       };
-      utterance.onerror = () => {
-        if (onEnd) onEnd();
-      };
+
+      utterance.onend = done;
+      utterance.onerror = done;
+
+      // Safety timeout in case browser never fires onend
+      setTimeout(done, 6000);
 
       window.speechSynthesis.speak(utterance);
     } catch {
