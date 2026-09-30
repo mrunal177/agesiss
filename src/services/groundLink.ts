@@ -14,7 +14,7 @@ export interface GroundLinkStatus {
 }
 
 export class GroundLinkService {
-  private host: string = 'localhost:8000';
+  private host: string = typeof window !== 'undefined' && window.location?.host ? window.location.host : 'localhost:3000';
   private ws: WebSocket | null = null;
   private isStreaming: boolean = false;
   private bytesSent: number = 0;
@@ -24,8 +24,10 @@ export class GroundLinkService {
   private isConnected: boolean = false;
   private subscribers: Array<(status: GroundLinkStatus) => void> = [];
 
-  constructor(host: string = 'localhost:8000') {
-    this.host = host;
+  constructor(host?: string) {
+    if (host) {
+      this.host = host;
+    }
     this.checkHealth();
   }
 
@@ -49,12 +51,28 @@ export class GroundLinkService {
     }
   }
 
+  private getHttpScheme(): string {
+    if (typeof window !== 'undefined' && window.location?.protocol === 'https:') {
+      return 'https:';
+    }
+    return 'http:';
+  }
+
+  private getWsScheme(): string {
+    if (typeof window !== 'undefined' && window.location?.protocol === 'https:') {
+      return 'wss:';
+    }
+    return 'ws:';
+  }
+
   public getStatus(): GroundLinkStatus {
+    const httpScheme = this.getHttpScheme();
+    const wsScheme = this.getWsScheme();
     return {
       connected: this.isConnected,
       streaming: this.isStreaming,
-      endpoint: `http://${this.host}`,
-      wsUrl: `ws://${this.host}/ws/stream`,
+      endpoint: `${httpScheme}//${this.host}`,
+      wsUrl: `${wsScheme}//${this.host}/ws/stream`,
       bytesSent: this.bytesSent,
       bitrateKbps: Math.round(this.currentBitrate),
     };
@@ -64,7 +82,8 @@ export class GroundLinkService {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000);
-      const res = await fetch(`http://${this.host}/`, { signal: controller.signal });
+      const httpScheme = this.getHttpScheme();
+      const res = await fetch(`${httpScheme}//${this.host}/api/status`, { signal: controller.signal });
       clearTimeout(timeoutId);
       this.isConnected = res.ok;
     } catch {
@@ -77,7 +96,8 @@ export class GroundLinkService {
   public async sendLog(outcome: FSMOutcome): Promise<boolean> {
     if (!this.isConnected) return false;
     try {
-      const res = await fetch(`http://${this.host}/api/log`, {
+      const httpScheme = this.getHttpScheme();
+      const res = await fetch(`${httpScheme}//${this.host}/api/log`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(outcome),
@@ -94,7 +114,8 @@ export class GroundLinkService {
     }
 
     try {
-      this.ws = new WebSocket(`ws://${this.host}/ws/stream`);
+      const wsScheme = this.getWsScheme();
+      this.ws = new WebSocket(`${wsScheme}//${this.host}/ws/stream`);
       this.ws.binaryType = 'arraybuffer';
 
       this.ws.onopen = () => {

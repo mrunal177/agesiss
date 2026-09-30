@@ -127,6 +127,48 @@ export class EventDetector {
     };
   }
 
+  public triggerManualPick(object: 'red' | 'yellow', t: number = performance.now()): ActionEvent {
+    const internalObj = this.objects.get(object);
+    if (internalObj) {
+      internalObj.previousCommittedState = internalObj.committedState;
+      internalObj.committedState = 'HELD';
+      internalObj.currentCandidateState = 'HELD';
+      internalObj.candidateFrames = 10;
+    }
+    return {
+      type: 'PICK',
+      object,
+      name: `PICK_${object.toUpperCase()}`,
+      t,
+      firstFrameT: t - 200,
+      before: 'INSIDE_BOX',
+      after: 'HELD',
+      components: { state: 1.0, contact: 1.0, temporal: 0.92 },
+      unified: 0.96,
+    };
+  }
+
+  public triggerManualPlace(object: 'red' | 'yellow', t: number = performance.now()): ActionEvent {
+    const internalObj = this.objects.get(object);
+    if (internalObj) {
+      internalObj.previousCommittedState = internalObj.committedState;
+      internalObj.committedState = 'TARGET_ZONE';
+      internalObj.currentCandidateState = 'TARGET_ZONE';
+      internalObj.candidateFrames = 10;
+    }
+    return {
+      type: 'PLACE',
+      object,
+      name: `PLACE_${object.toUpperCase()}`,
+      t,
+      firstFrameT: t - 200,
+      before: 'HELD',
+      after: 'TARGET_ZONE',
+      components: { state: 1.0, contact: 0.95, temporal: 0.92 },
+      unified: 0.96,
+    };
+  }
+
   public setLidBaselineArea(area: number) {
     this.lidBaselineArea = Math.max(10, area);
   }

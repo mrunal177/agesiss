@@ -11,7 +11,7 @@ export const PRIMARY_PROTOCOL: ProtocolConfig = {
       type: 'OPEN',
       object: 'box',
       voice: 'Please open the box.',
-      hint: 'Drag on-screen Box Lid up, wave hand across cyan Box Region, or click "Open Box Now"',
+      hint: 'Point index finger at Box Lid latch to pinch or wave hand across Box Region',
     },
     {
       id: 2,
@@ -19,7 +19,7 @@ export const PRIMARY_PROTOCOL: ProtocolConfig = {
       type: 'PICK',
       object: 'red',
       voice: 'Please pick the red object.',
-      hint: 'Drag the on-screen Red specimen vial, or reach into chamber with your hand',
+      hint: 'Point index finger at Red specimen → Pinch to Pick → Move → Release to Place',
     },
     {
       id: 3,
@@ -27,7 +27,7 @@ export const PRIMARY_PROTOCOL: ProtocolConfig = {
       type: 'PLACE',
       object: 'red',
       voice: 'Please place the red object in the target zone.',
-      hint: 'Drag on-screen Red specimen into the green Target Zone (bottom-right)',
+      hint: 'Move hand to green Target Zone while pinching → Release pinch to Place',
     },
     {
       id: 4,
@@ -35,7 +35,7 @@ export const PRIMARY_PROTOCOL: ProtocolConfig = {
       type: 'PICK',
       object: 'yellow',
       voice: 'Please pick the yellow object.',
-      hint: 'Drag the on-screen Yellow reagent vial, or reach into chamber with your hand',
+      hint: 'Point index finger at Yellow reagent → Pinch to Pick → Move → Release to Place',
     },
     {
       id: 5,
@@ -43,7 +43,7 @@ export const PRIMARY_PROTOCOL: ProtocolConfig = {
       type: 'PLACE',
       object: 'yellow',
       voice: 'Please place the yellow object in the target zone.',
-      hint: 'Drag on-screen Yellow vial to the green Target Zone and release',
+      hint: 'Move hand to green Target Zone while pinching → Release pinch to Place',
     },
   ],
   preconditions: [

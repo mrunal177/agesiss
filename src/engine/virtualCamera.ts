@@ -424,7 +424,7 @@ export class VirtualCamera {
       ctx.fillStyle = '#e2e8f0';
       ctx.font = 'bold 8px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('▲ DRAG LID UP TO OPEN ▲', curLidX + bW / 2, curLidY + bH / 2 + 24);
+      ctx.fillText('▲ PINCH OR WAVE TO OPEN LID ▲', curLidX + bW / 2, curLidY + bH / 2 + 24);
       ctx.font = 'bold 7px monospace';
       ctx.fillStyle = '#38bdf8';
       ctx.fillText('BOX LID HANDLE', curLidX + bW / 2, curLidY + bH / 2 - 14);

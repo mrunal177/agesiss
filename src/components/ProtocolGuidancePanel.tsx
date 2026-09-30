@@ -93,8 +93,8 @@ export const ProtocolGuidancePanel: React.FC = () => {
           liveCoachingStatus = {
             status: 'hint',
             headline: 'Step 1: Open Containment Box (On-Screen or Webcam)',
-            message: 'Easy options: 1) Drag the blue LID LATCH directly on the video screen upwards; 2) Click "Open Box Now" / Spacebar; 3) Wave hand across the Box Region; or 4) Open a real box lid.',
-            actionHint: 'Voice Command: "Please open the box." · Drag lid on-screen or press Spacebar',
+            message: 'Easy options: 1) Point index finger at LID LATCH and pinch/wave to open; 2) Click "Open Box Now" / Spacebar; 3) Wave hand across the Box Region; or 4) Open a real box lid.',
+            actionHint: 'Voice Command: "Please open the box." · Point & Pinch lid on-screen or press Spacebar',
           };
         } else {
           liveCoachingStatus = {

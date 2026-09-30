@@ -91,17 +91,12 @@ export const VideoStage: React.FC<VideoStageProps> = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [fsmIdx, triggerBoxOpen]);
 
-  // Dragging / Resizing state for calibration, box lid, or virtual objects
+  // Dragging / Resizing state for calibration ROI boxes only
   const [draggingTarget, setDraggingTarget] = useState<
     | 'box'
     | 'target'
     | 'box_handle'
     | 'target_handle'
-    | 'virtual_lid'
-    | 'virtual_lid_handle'
-    | 'virtual_red'
-    | 'virtual_yellow'
-    | 'virtual_hand'
     | null
   >(null);
   const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -252,7 +247,7 @@ export const VideoStage: React.FC<VideoStageProps> = () => {
     };
   }, [sourceMode, selectedDeviceId]);
 
-  // Handle clicking & dragging on overlay canvas for calibration or virtual camera objects
+  // Handle clicking & dragging on overlay canvas for calibration ROI adjustment only
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = overlayCanvasRef.current;
     if (!canvas) return;
@@ -308,55 +303,12 @@ export const VideoStage: React.FC<VideoStageProps> = () => {
       }
       return;
     }
-
-    // Interactive on-screen objects & lid dragging (supported in virtual mode AND live webcam mode!)
-    const px = normX * CONFIG.PROC_W;
-    const py = normY * CONFIG.PROC_H;
-
-    const bX = boxROI.x;
-    const bY = boxROI.y;
-    const bW = boxROI.w;
-    const bH = boxROI.h;
-
-    // Check click on Box Lid or Latch handle
-    const lidSlide = runner.virtualCamera.boxOpen
-      ? Math.max(0.7, runner.virtualCamera.lidSlideOffset)
-      : runner.virtualCamera.lidSlideOffset;
-    const curLidY = bY - lidSlide * (bH * 0.9);
-    const inLidArea = px >= bX && px <= bX + bW && py >= curLidY && py <= curLidY + bH;
-    const inLidHandle =
-      px >= bX + bW / 2 - 35 &&
-      px <= bX + bW / 2 + 35 &&
-      py >= curLidY + bH / 2 - 20 &&
-      py <= curLidY + bH / 2 + 20;
-
-    const distRed = Math.hypot(px - runner.virtualCamera.redPos.x, py - runner.virtualCamera.redPos.y);
-    const distYellow = Math.hypot(px - runner.virtualCamera.yellowPos.x, py - runner.virtualCamera.yellowPos.y);
-
-    if (inLidHandle || (inLidArea && lidSlide < 0.8)) {
-      setDraggingTarget('virtual_lid');
-      setDragStartPos({ x: px, y: py });
-      // If user simply clicks the lid handle, trigger box opening immediately
-      if (fsmIdx === 0 && !runner.virtualCamera.boxOpen) {
-        triggerBoxOpen();
-      }
-    } else if (distRed < 24) {
-      setDraggingTarget('virtual_red');
-      setDragStartPos({ x: px, y: py });
-    } else if (distYellow < 24) {
-      setDraggingTarget('virtual_yellow');
-      setDragStartPos({ x: px, y: py });
-    } else {
-      // Move virtual hand to clicked position
-      runner.virtualCamera.handVisible = true;
-      runner.virtualCamera.handPos = { x: px, y: py };
-      runner.virtualCamera.render();
-      setDraggingTarget('virtual_hand');
-    }
+    // When not calibrating ROIs, mouse clicking & dragging on objects is completely disabled.
+    // Interaction is driven entirely by real webcam finger tracking (Point → Pinch → Move → Release).
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!draggingTarget || !overlayCanvasRef.current) return;
+    if (!draggingTarget || !overlayCanvasRef.current || !isCalibrating) return;
     const rect = overlayCanvasRef.current.getBoundingClientRect();
     const curX = ((e.clientX - rect.left) / rect.width) * CONFIG.PROC_W;
     const curY = ((e.clientY - rect.top) / rect.height) * CONFIG.PROC_H;
@@ -380,38 +332,10 @@ export const VideoStage: React.FC<VideoStageProps> = () => {
       const newW = Math.max(40, Math.min(CONFIG.PROC_W - initialROI.x, Math.round(initialROI.w + dx)));
       const newH = Math.max(40, Math.min(CONFIG.PROC_H - initialROI.y, Math.round(initialROI.h + dy)));
       setROIs(boxROI, { ...targetROI, w: newW, h: newH });
-    } else if (draggingTarget === 'virtual_lid') {
-      // Dragging lid upwards: negative dy opens the lid
-      const dragFraction = -dy / Math.max(1, boxROI.h * 0.8);
-      const newOffset = Math.max(0, Math.min(1, dragFraction));
-      runner.virtualCamera.setLidSlideOffset(newOffset);
-      if (newOffset >= 0.4 && fsmIdx === 0) {
-        triggerBoxOpen();
-      }
-    } else if (draggingTarget === 'virtual_red') {
-      runner.virtualCamera.redPos = { x: Math.round(curX), y: Math.round(curY) };
-      runner.virtualCamera.handPos = { x: Math.round(curX), y: Math.round(curY) };
-      runner.virtualCamera.handVisible = true;
-      runner.virtualCamera.handHolding = 'red';
-      runner.virtualCamera.render();
-    } else if (draggingTarget === 'virtual_yellow') {
-      runner.virtualCamera.yellowPos = { x: Math.round(curX), y: Math.round(curY) };
-      runner.virtualCamera.handPos = { x: Math.round(curX), y: Math.round(curY) };
-      runner.virtualCamera.handVisible = true;
-      runner.virtualCamera.handHolding = 'yellow';
-      runner.virtualCamera.render();
-    } else if (draggingTarget === 'virtual_hand') {
-      runner.virtualCamera.handPos = { x: Math.round(curX), y: Math.round(curY) };
-      runner.virtualCamera.handVisible = true;
-      runner.virtualCamera.render();
     }
   };
 
   const handleCanvasMouseUp = () => {
-    if (draggingTarget === 'virtual_red' || draggingTarget === 'virtual_yellow') {
-      runner.virtualCamera.handHolding = 'none';
-      runner.virtualCamera.render();
-    }
     setDraggingTarget(null);
   };
 
@@ -526,11 +450,11 @@ export const VideoStage: React.FC<VideoStageProps> = () => {
               {/* 4 Clear Methods */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 pt-1 font-sans text-slate-700 text-xs">
                 <div className="flex items-start gap-2 p-2 rounded-lg bg-white/90 border border-cyan-300 shadow-2xs ring-1 ring-cyan-400">
-                  <span className="text-lg leading-none shrink-0">🖱️</span>
+                  <span className="text-lg leading-none shrink-0">✋</span>
                   <div>
-                    <strong className="block text-cyan-900 font-semibold text-xs">1. Drag On-Screen Lid</strong>
+                    <strong className="block text-cyan-900 font-semibold text-xs">1. Point &amp; Pinch Lid</strong>
                     <span className="text-[11px] text-slate-600 leading-tight block mt-0.5">
-                      Click &amp; drag the blue <strong>LID LATCH</strong> directly on the video screen up to slide it open!
+                      Point index finger at the blue <strong>LID LATCH</strong> and pinch (or wave) to open!
                     </span>
                   </div>
                 </div>
@@ -731,7 +655,7 @@ export const VideoStage: React.FC<VideoStageProps> = () => {
             </button>
           </div>
           <span className="text-cyan-800 text-[11px] font-semibold hidden md:inline flex items-center gap-1">
-            <span>🖱️ Click &amp; drag Box Lid or Red/Yellow vials directly on the video screen</span>
+            <span>✋ Point → Pinch to Pick → Move → Release to Place.</span>
           </span>
         </div>
       )}

@@ -27,7 +27,9 @@ export const RecordingsStreamScreen: React.FC = () => {
     toggleRecording,
   } = useAegisStore();
 
-  const [streamHost, setStreamHost] = useState<string>('localhost:8000');
+  const [streamHost, setStreamHost] = useState<string>(
+    typeof window !== 'undefined' && window.location?.host ? window.location.host : 'localhost:3000'
+  );
   const [activePlaybackUrl, setActivePlaybackUrl] = useState<string | null>(null);
 
   // Compute real bandwidth: bytes(recorded video) vs bytes(event log)

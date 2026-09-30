@@ -1,4 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
 import { ProtocolStep } from '../types';
 
 export interface SceneInterpretation {
@@ -15,30 +14,14 @@ export interface SceneInterpretation {
 }
 
 export class GeminiService {
-  private ai: GoogleGenAI | null = null;
-  private apiKey: string = '';
-
-  constructor() {
-    this.apiKey =
-      (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) ||
-      (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY) ||
-      '';
-
-    if (this.apiKey) {
-      try {
-        this.ai = new GoogleGenAI({ apiKey: this.apiKey });
-      } catch {
-        this.ai = null;
-      }
-    }
-  }
+  constructor() {}
 
   public isAvailable(): boolean {
-    return !!this.apiKey;
+    return true;
   }
 
   /**
-   * Interpret downscaled video frame JPEG (Advisory only)
+   * Interpret downscaled video frame JPEG (Advisory only via server proxy)
    */
   public async interpretFrame(jpegBase64: string): Promise<SceneInterpretation> {
     const t0 = performance.now();
@@ -54,68 +37,41 @@ export class GeminiService {
       message: 'Offline — local pipeline active',
     };
 
-    if (!this.ai) {
+    if (!jpegBase64) {
       return fallback;
     }
 
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 3000); // 3s deadline
+      const timer = setTimeout(() => controller.abort(), 4000); // 4s deadline
 
-      const prompt = `Analyze this biological experiment payload frame. Return strictly valid JSON:
-{
-  "box_open": boolean,
-  "red_state": "UNSEEN" | "INSIDE_BOX" | "HELD" | "TARGET_ZONE" | "OUTSIDE",
-  "yellow_state": "UNSEEN" | "INSIDE_BOX" | "HELD" | "TARGET_ZONE" | "OUTSIDE",
-  "hand_holding": "red" | "yellow" | null,
-  "current_action": "OPENING_BOX" | "PICKING" | "PLACING" | "IDLE"
-}`;
-
-      // Clean base64 header if present
-      const cleanBase64 = jpegBase64.replace(/^data:image\/\w+;base64,/, '');
-
-      const response = await this.ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { text: prompt },
-              {
-                inlineData: {
-                  mimeType: 'image/jpeg',
-                  data: cleanBase64,
-                },
-              },
-            ],
-          },
-        ],
+      const res = await fetch('/api/gemini/interpret', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jpegBase64 }),
+        signal: controller.signal,
       });
 
       clearTimeout(timer);
-      const latencyMs = Math.round(performance.now() - t0);
-      const text = response.text || '';
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
 
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
+      if (!res.ok) {
         return {
-          isOnline: true,
-          latencyMs,
-          box_open: !!parsed.box_open,
-          red_state: parsed.red_state || 'INSIDE_BOX',
-          yellow_state: parsed.yellow_state || 'INSIDE_BOX',
-          hand_holding: parsed.hand_holding || null,
-          current_action: parsed.current_action || 'IDLE',
-          timestamp: new Date().toTimeString().split(' ')[0],
+          ...fallback,
+          latencyMs: Math.round(performance.now() - t0),
         };
       }
 
+      const data = await res.json();
       return {
-        ...fallback,
         isOnline: true,
-        latencyMs,
-        rawText: text,
+        latencyMs: Math.round(performance.now() - t0),
+        box_open: !!data.box_open,
+        red_state: data.red_state || 'INSIDE_BOX',
+        yellow_state: data.yellow_state || 'INSIDE_BOX',
+        hand_holding: data.hand_holding || null,
+        current_action: data.current_action || 'IDLE',
+        timestamp: data.timestamp || new Date().toTimeString().split(' ')[0],
+        rawText: data.rawText,
       };
     } catch {
       return {
@@ -126,50 +82,35 @@ export class GeminiService {
   }
 
   /**
-   * Natural-language text -> structured steps via Gemini or deterministic regex fallback
+   * Natural-language text -> structured steps via server-side Gemini or deterministic regex fallback
    */
   public async parseNaturalProtocol(text: string): Promise<ProtocolStep[]> {
-    // 1. Deterministic regex fallback for open|pick|place ... red|yellow|box
-    const deterministicSteps = this.parseWithRegex(text);
-
-    if (!this.ai) {
-      return deterministicSteps;
-    }
-
+    // 1. Check if server can parse with Gemini
     try {
-      const prompt = `Convert the following procedure into a JSON array of protocol steps matching type:
-[
-  { "id": 1, "name": "OPEN_BOX", "type": "OPEN", "object": "box", "voice": "Please open the box." },
-  { "id": 2, "name": "PICK_RED", "type": "PICK", "object": "red", "voice": "Please pick the red object." }
-]
-Procedure:
-"${text}"
-Return ONLY raw JSON array. Allowed type: "OPEN"|"PICK"|"PLACE". Allowed object: "box"|"red"|"yellow".`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
 
-      const response = await this.ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
+      const res = await fetch('/api/gemini/parse-protocol', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+        signal: controller.signal,
       });
 
-      const responseText = response.text || '';
-      const match = responseText.match(/\[[\s\S]*\]/);
-      if (match) {
-        const parsed = JSON.parse(match[0]);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((s, idx) => ({
-            id: idx + 1,
-            name: s.name || `${s.type}_${(s.object || 'OBJ').toUpperCase()}`,
-            type: s.type || 'PICK',
-            object: s.object || 'red',
-            voice: s.voice || `Please ${s.type.toLowerCase()} the ${s.object}.`,
-          }));
+      clearTimeout(timer);
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.steps && Array.isArray(data.steps) && data.steps.length > 0) {
+          return data.steps;
         }
       }
     } catch {
-      // Use deterministic fallback
+      // Fall through to regex
     }
 
-    return deterministicSteps;
+    // 2. Deterministic regex fallback
+    return this.parseWithRegex(text);
   }
 
   private parseWithRegex(text: string): ProtocolStep[] {

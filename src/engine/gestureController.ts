@@ -33,7 +33,7 @@ export class GestureController {
   public holdingObject: 'red' | 'yellow' | null = null;
   public targetedObject: TargetedObject = null;
   public statusText: string = 'POINT TO AN OBJECT';
-  public subText: string = 'Use your index finger to target an object';
+  public subText: string = 'Point → Pinch to Pick → Move → Release to Place.';
 
   // Position history for smoothing
   private smoothedIndexTip: Point2D | null = null;
@@ -90,7 +90,7 @@ export class GestureController {
       this.smoothedIndexTip = null;
       this.state = 'IDLE';
       this.statusText = 'HAND NOT DETECTED';
-      this.subText = 'Position your hand in front of the camera';
+      this.subText = 'Point → Pinch to Pick → Move → Release to Place.';
       this.targetedObject = null;
 
       return {
@@ -104,7 +104,7 @@ export class GestureController {
     if (!rawTip) {
       this.state = 'HAND_DETECTED';
       this.statusText = 'HAND DETECTED';
-      this.subText = 'POINT TO AN OBJECT';
+      this.subText = 'Point → Pinch to Pick → Move → Release to Place.';
       return {
         gestureStatus: this.getSnapshot(true, null, null, null, 0, false, false),
       };
@@ -120,11 +120,11 @@ export class GestureController {
     const pinchDist = typeof hand.pinchDistance === 'number' ? hand.pinchDistance : 50;
     let isPinching = false;
     if (this.lastPinchState) {
-      // While pinching, must open wider than 40px to release
-      isPinching = pinchDist <= 40;
+      // While pinching, must open wider than 42px to release
+      isPinching = pinchDist <= 42 && hand.isPinching !== false;
     } else {
-      // While open, must close tighter than 32px to pinch
-      isPinching = pinchDist <= 32 || hand.isGrabbing === true || hand.gesture === 'pinch';
+      // While open, must close tighter than 35px or have explicit pinch flag
+      isPinching = pinchDist <= 35 || hand.isPinching === true || hand.isGrabbing === true || hand.gesture === 'pinch';
     }
     this.lastPinchState = isPinching;
 
@@ -136,12 +136,12 @@ export class GestureController {
       this.pinchHoldFrames = 0;
     }
 
-    // Target zone bounds check
+    // Target zone bounds check (with slight margin)
     const inTargetZone =
-      indexTip.x >= targetROI.x &&
-      indexTip.x <= targetROI.x + targetROI.w &&
-      indexTip.y >= targetROI.y &&
-      indexTip.y <= targetROI.y + targetROI.h;
+      indexTip.x >= targetROI.x - 10 &&
+      indexTip.x <= targetROI.x + targetROI.w + 10 &&
+      indexTip.y >= targetROI.y - 10 &&
+      indexTip.y <= targetROI.y + targetROI.h + 10;
 
     // Box bounds check
     const inBoxZone =
@@ -150,55 +150,55 @@ export class GestureController {
       indexTip.y >= boxROI.y &&
       indexTip.y <= boxROI.y + boxROI.h;
 
-    // Distances to objects
+    // Distances from index tip to objects
     const distToRed = Math.hypot(indexTip.x - redPos.x, indexTip.y - redPos.y);
     const distToYellow = Math.hypot(indexTip.x - yellowPos.x, indexTip.y - yellowPos.y);
 
-    // Interactive targeting radius (28px)
-    const TARGET_RADIUS = 30;
+    // Interactive targeting radius (38px for comfortable webcam fingertip targeting)
+    const TARGET_RADIUS = 38;
 
     // =========================================================================
     // CASE A: CURRENTLY HOLDING AN OBJECT (PICKED / HOLDING -> MOVE -> RELEASE -> PLACE)
     // =========================================================================
     if (this.holdingObject === 'red') {
-      // Specimen follows user's index fingertip smoothly
+      // Specimen follows user's index fingertip smoothly on the video
       newRedPos = { x: Math.round(indexTip.x), y: Math.round(indexTip.y) };
 
       if (inTargetZone) {
         this.targetDwellFrames++;
         this.state = 'TARGET_ZONE_REACHED';
-        this.statusText = 'TARGET ZONE REACHED — RELEASE TO PLACE';
-        this.subText = 'Open fingers (release pinch) to place the red specimen';
+        this.statusText = 'TARGET ZONE REACHED';
+        this.subText = 'RELEASE PINCH TO PLACE RED SPECIMEN';
 
         // Check for PINCH RELEASE
-        if (!isPinching && this.releaseFrames >= 2) {
+        if (!isPinching && this.releaseFrames >= 1) {
           // PLACE ACTION EXECUTED!
           this.holdingObject = null;
           this.state = 'PLACED';
           this.statusText = 'RED PLACED';
-          this.subText = 'Red specimen placed in target zone';
+          this.subText = 'Point → Pinch to Pick → Move → Release to Place.';
           this.lastPlacedObject = 'red';
           this.placedConfirmationFrames = 45; // ~1.5s
           actionTrigger = 'PLACE_RED';
 
           // Clamp resting position inside target zone tray slot 1
           newRedPos = {
-            x: Math.round(targetROI.x + 25),
-            y: Math.round(targetROI.y + 35),
+            x: Math.round(targetROI.x + 35),
+            y: Math.round(targetROI.y + 45),
           };
         }
       } else {
         this.targetDwellFrames = 0;
         this.state = 'PICKED_HOLDING';
         this.statusText = 'HOLDING RED — MOVE TO TARGET';
-        this.subText = 'Move your hand to the green target zone while pinching';
+        this.subText = 'Move hand to green target zone while pinching';
 
         // If user releases pinch before reaching target zone, drop it at current position
-        if (!isPinching && this.releaseFrames >= 4) {
+        if (!isPinching && this.releaseFrames >= 5) {
           this.holdingObject = null;
           this.state = 'IDLE';
           this.statusText = 'RED RELEASED';
-          this.subText = 'Pick it up again and move to green target zone';
+          this.subText = 'Point → Pinch to Pick → Move → Release to Place.';
         }
       }
 
@@ -210,42 +210,43 @@ export class GestureController {
     }
 
     if (this.holdingObject === 'yellow') {
+      // Specimen follows user's index fingertip smoothly on the video
       newYellowPos = { x: Math.round(indexTip.x), y: Math.round(indexTip.y) };
 
       if (inTargetZone) {
         this.targetDwellFrames++;
         this.state = 'TARGET_ZONE_REACHED';
-        this.statusText = 'TARGET ZONE REACHED — RELEASE TO PLACE';
-        this.subText = 'Open fingers (release pinch) to place yellow reagent';
+        this.statusText = 'TARGET ZONE REACHED';
+        this.subText = 'RELEASE PINCH TO PLACE YELLOW REAGENT';
 
         // Check for PINCH RELEASE
-        if (!isPinching && this.releaseFrames >= 2) {
+        if (!isPinching && this.releaseFrames >= 1) {
           // PLACE ACTION EXECUTED!
           this.holdingObject = null;
           this.state = 'PLACED';
           this.statusText = 'YELLOW PLACED';
-          this.subText = 'Yellow reagent placed in target zone';
+          this.subText = 'Point → Pinch to Pick → Move → Release to Place.';
           this.lastPlacedObject = 'yellow';
           this.placedConfirmationFrames = 45;
           actionTrigger = 'PLACE_YELLOW';
 
           // Clamp resting position inside target zone tray slot 2
           newYellowPos = {
-            x: Math.round(targetROI.x + 70),
-            y: Math.round(targetROI.y + 35),
+            x: Math.round(targetROI.x + 85),
+            y: Math.round(targetROI.y + 45),
           };
         }
       } else {
         this.targetDwellFrames = 0;
         this.state = 'PICKED_HOLDING';
         this.statusText = 'HOLDING YELLOW — MOVE TO TARGET';
-        this.subText = 'Move your hand to the green target zone while pinching';
+        this.subText = 'Move hand to green target zone while pinching';
 
-        if (!isPinching && this.releaseFrames >= 4) {
+        if (!isPinching && this.releaseFrames >= 5) {
           this.holdingObject = null;
           this.state = 'IDLE';
           this.statusText = 'YELLOW RELEASED';
-          this.subText = 'Pick it up again and move to green target zone';
+          this.subText = 'Point → Pinch to Pick → Move → Release to Place.';
         }
       }
 
@@ -266,7 +267,7 @@ export class GestureController {
         this.targetedObject = 'box';
         this.state = 'OBJECT_TARGETED';
         this.statusText = 'BOX TARGETED';
-        this.subText = isPinching ? 'OPENING BOX...' : 'Pinch latch or wave hand to open box';
+        this.subText = isPinching ? 'OPENING BOX...' : 'Pinch or wave hand over box to open lid';
 
         if (isPinching) {
           actionTrigger = 'OPEN_BOX';
@@ -283,14 +284,14 @@ export class GestureController {
       this.targetedObject = 'red';
       this.state = 'OBJECT_TARGETED';
       this.statusText = 'RED TARGETED';
-      this.subText = 'PINCH TO PICK';
+      this.subText = 'Point → Pinch to Pick → Move → Release to Place.';
 
-      // PINCH MUST ACT AS THE PICK ACTION
+      // PINCH = thumb + index finger close together → PICK the object
       if (isPinching && this.pinchHoldFrames >= 1) {
         this.holdingObject = 'red';
         this.state = 'PICKED_HOLDING';
         this.statusText = 'HOLDING RED — MOVE TO TARGET';
-        this.subText = 'Move hand to green target zone';
+        this.subText = 'Move hand to green target zone while pinching';
         actionTrigger = 'PICK_RED';
         newRedPos = { x: Math.round(indexTip.x), y: Math.round(indexTip.y) };
       }
@@ -307,14 +308,14 @@ export class GestureController {
       this.targetedObject = 'yellow';
       this.state = 'OBJECT_TARGETED';
       this.statusText = 'YELLOW TARGETED';
-      this.subText = 'PINCH TO PICK';
+      this.subText = 'Point → Pinch to Pick → Move → Release to Place.';
 
-      // PINCH MUST ACT AS THE PICK ACTION
+      // PINCH = thumb + index finger close together → PICK the object
       if (isPinching && this.pinchHoldFrames >= 1) {
         this.holdingObject = 'yellow';
         this.state = 'PICKED_HOLDING';
         this.statusText = 'HOLDING YELLOW — MOVE TO TARGET';
-        this.subText = 'Move hand to green target zone';
+        this.subText = 'Move hand to green target zone while pinching';
         actionTrigger = 'PICK_YELLOW';
         newYellowPos = { x: Math.round(indexTip.x), y: Math.round(indexTip.y) };
       }
@@ -333,10 +334,10 @@ export class GestureController {
     if (this.placedConfirmationFrames > 0 && this.lastPlacedObject) {
       this.state = 'PLACED';
       this.statusText = this.lastPlacedObject === 'red' ? 'RED PLACED' : 'YELLOW PLACED';
-      this.subText = 'Specimen secured in target zone';
+      this.subText = 'Point → Pinch to Pick → Move → Release to Place.';
     } else {
       this.statusText = 'HAND DETECTED';
-      this.subText = 'POINT TO AN OBJECT';
+      this.subText = 'Point → Pinch to Pick → Move → Release to Place.';
     }
 
     return {
@@ -349,7 +350,7 @@ export class GestureController {
     this.holdingObject = null;
     this.targetedObject = null;
     this.statusText = 'POINT TO AN OBJECT';
-    this.subText = 'Use your index finger to target an object';
+    this.subText = 'Point → Pinch to Pick → Move → Release to Place.';
     this.smoothedIndexTip = null;
     this.lastPinchState = false;
     this.pinchHoldFrames = 0;

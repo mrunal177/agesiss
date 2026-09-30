@@ -264,7 +264,7 @@ export const useAegisStore = create<AegisState>((set, get) => {
     selfTestRemainingSec: 45,
     selfTestResults: null,
 
-    sourceMode: 'virtual',
+    sourceMode: 'live',
     activeScenarioId: 'TC-01',
 
     groundStatus: initialGroundLink.getStatus(),
