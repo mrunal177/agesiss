@@ -180,7 +180,7 @@ export const useAegisStore = create<AegisState>((set, get) => {
     set({ transcript: [...transcript] });
   };
 
-  // Sync FSM snapshots
+  // Sync FSM snapshots simultaneously with session state
   initialFsm.subscribe((snap) => {
     set({
       fsmIdx: snap.idx,
@@ -189,6 +189,11 @@ export const useAegisStore = create<AegisState>((set, get) => {
       isComplete: snap.isComplete,
       runType: snap.runType,
       lastOutcome: snap.lastOutcome,
+      sessionState: snap.isComplete
+        ? 'complete'
+        : snap.idx > 0 && get().sessionState === 'idle'
+        ? 'running'
+        : get().sessionState,
     });
   });
 
@@ -201,6 +206,7 @@ export const useAegisStore = create<AegisState>((set, get) => {
   runner.subscribe((rState) => {
     set({
       sessionState: rState.sessionState,
+      fsmIdx: rState.heartbeat.fsmIdx,
       heartbeat: rState.heartbeat,
       boxROI: rState.boxROI,
       targetROI: rState.targetROI,

@@ -381,12 +381,19 @@ export class EventDetector {
       }
       obj.speed = speed;
 
+      // Completion & placement status
+      const isExpComplete = currentFSMIndex >= 5;
+      const isObjectAlreadyPlaced =
+        obj.committedState === 'TARGET_ZONE' ||
+        (label === 'red' && currentFSMIndex >= 3) ||
+        (label === 'yellow' && currentFSMIndex >= 5);
+
       // Estimate instantaneous candidate state
       let rawCandidate: ObjectState = 'UNSEEN';
 
       if (!obs.visible) {
-        // Check LOST condition (only evaluated once idx >= 1)
-        if (currentFSMIndex >= 1) {
+        // Check LOST condition (only evaluated once idx >= 1, before experiment completion idx < 5, and not if object is already placed)
+        if (currentFSMIndex >= 1 && !isExpComplete && !isObjectAlreadyPlaced) {
           const unseenDuration = t - obj.lastVisibleT;
           // Check hand contact near last position within OCCLUSION_GRACE_MS
           let handNearLastPosWithinGrace = false;
@@ -408,7 +415,7 @@ export class EventDetector {
             rawCandidate = obj.committedState;
           }
         } else {
-          rawCandidate = 'UNSEEN';
+          rawCandidate = isObjectAlreadyPlaced ? 'TARGET_ZONE' : (currentFSMIndex < 1 ? 'UNSEEN' : obj.committedState);
         }
       } else {
         // Object is visible
@@ -468,12 +475,12 @@ export class EventDetector {
       }
 
       // Check WRONG_ZONE detection (OUTSIDE for 12 frames while expected is PLACE for this object)
-      if (obj.outsideFrames >= 12 && obj.currentCandidateState === 'OUTSIDE') {
+      if (!isExpComplete && !isObjectAlreadyPlaced && obj.outsideFrames >= 12 && obj.currentCandidateState === 'OUTSIDE') {
         wrongZoneDetected = { object: label, t };
       }
 
-      // Check LOST committed
-      if (rawCandidate === 'LOST' && obj.candidateFrames >= 2) {
+      // Check LOST committed (never if experiment is completed or object already placed)
+      if (!isExpComplete && !isObjectAlreadyPlaced && rawCandidate === 'LOST' && obj.candidateFrames >= 2) {
         lostDetected = { object: label, t };
       }
 

@@ -176,6 +176,14 @@ export class FSMEngine {
    * Periodic check called every frame for recovery, reminder, and watchdogs
    */
   public updateStates(observedStates: Record<string, ObjectState>, now: number = performance.now()) {
+    // If experiment is complete, clear any existing alert and never trigger reminders
+    if (this.isComplete()) {
+      if (this.activeAlert) {
+        this.clearAlert();
+      }
+      return;
+    }
+
     // 1. Recovery check:
     if (this.activeAlert?.status === 'LOST') {
       const lostObj = this.activeAlert.object || 'red';
@@ -232,6 +240,8 @@ export class FSMEngine {
    * Handler for LOST condition
    */
   public handleLost(object: 'red' | 'yellow', t: number = performance.now()) {
+    // If experiment is complete, never raise LOST alert
+    if (this.isComplete() || this.idx >= this.protocol.steps.length) return;
     if (this.isPaused && this.activeAlert?.status === 'LOST') return;
     this.isPaused = true;
     const msg = 'Object lost. Pausing the experiment.';
@@ -244,6 +254,8 @@ export class FSMEngine {
    * Handler for WRONG_OBJECT_OR_ZONE
    */
   public handleWrongZone(object: 'red' | 'yellow', t: number = performance.now()) {
+    // If experiment is complete, never raise WRONG_OBJECT_OR_ZONE alert
+    if (this.isComplete() || this.idx >= this.protocol.steps.length) return;
     if (this.activeAlert?.status === 'WRONG_OBJECT_OR_ZONE') return;
     const msg = `Wrong zone. Please place the ${object} object in the target zone.`;
     const exp = this.getCurrentExpectedStep();
@@ -442,6 +454,12 @@ export class FSMEngine {
       }
       this.notify();
     }
+  }
+
+  public resume() {
+    this.isPaused = false;
+    this.clearAlert();
+    this.notify();
   }
 
   /**

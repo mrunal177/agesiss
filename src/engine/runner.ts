@@ -247,6 +247,16 @@ export class PerceptionRunner {
 
     this.virtualCamera = new VirtualCamera(this.boxROI, this.targetROI);
 
+    // Keep runner session state simultaneously in lockstep with FSM
+    this.fsm.subscribe((snap) => {
+      if (snap.isComplete && this.sessionState !== 'complete') {
+        this.sessionState = 'complete';
+      } else if (snap.idx > 0 && this.sessionState === 'idle') {
+        this.sessionState = 'running';
+      }
+      this.notify();
+    });
+
     // Start 1-second interval for heartbeat stuck counter checks & self-test
     setInterval(() => this.onHeartbeatTick(), 1000);
   }
@@ -399,15 +409,22 @@ export class PerceptionRunner {
   }
 
   public pickObject(object: 'red' | 'yellow'): boolean {
+    if (this.sessionState === 'idle') {
+      this.fsm.startExperiment(true);
+      this.setSessionState('running');
+    }
+    if (this.fsm.isPaused) {
+      this.fsm.resume();
+    }
+
     if (object === 'red') {
       // Once red is dropped in target, it CANNOT be picked again!
       if (this.isRedPlaced || this.fsm.idx >= 3) {
         return false;
       }
       this.virtualCamera.handHolding = 'red';
-      if (this.sessionState === 'idle') {
-        this.fsm.startExperiment();
-        this.setSessionState('running');
+      if (this.fsm.idx === 0) {
+        this.triggerBoxOpen();
       }
       if (this.fsm.idx === 1) {
         const ev = this.detector.triggerManualPick('red');
@@ -421,10 +438,6 @@ export class PerceptionRunner {
         return false;
       }
       this.virtualCamera.handHolding = 'yellow';
-      if (this.sessionState === 'idle') {
-        this.fsm.startExperiment();
-        this.setSessionState('running');
-      }
       if (this.fsm.idx === 3) {
         const ev = this.detector.triggerManualPick('yellow');
         this.eventsEmittedCount++;
@@ -450,6 +463,14 @@ export class PerceptionRunner {
     const yTargetX = tX + 9 + rSlotW;
     const yTargetY = tY + 18;
 
+    if (this.sessionState === 'idle') {
+      this.fsm.startExperiment(true);
+      this.setSessionState('running');
+    }
+    if (this.fsm.isPaused) {
+      this.fsm.resume();
+    }
+
     if (object === 'red') {
       this.isRedPlaced = true;
       this.gestureController.isRedPlaced = true;
@@ -462,10 +483,21 @@ export class PerceptionRunner {
         y: Math.round(rTargetY + rSlotH / 2),
       };
 
-      if (this.fsm.idx === 1 || this.fsm.idx === 2) {
-        const ev = this.detector.triggerManualPlace('red');
+      // Ensure box is opened (step 0)
+      if (this.fsm.idx === 0) {
+        this.triggerBoxOpen();
+      }
+      // If at step 1 (PICK_RED), advance pick first
+      if (this.fsm.idx === 1) {
+        const pickEv = this.detector.triggerManualPick('red');
         this.eventsEmittedCount++;
-        this.fsm.onAction(ev);
+        this.fsm.onAction(pickEv);
+      }
+      // Now complete step 2 (PLACE_RED)
+      if (this.fsm.idx === 2) {
+        const placeEv = this.detector.triggerManualPlace('red');
+        this.eventsEmittedCount++;
+        this.fsm.onAction(placeEv);
       } else {
         // Direct voice playback
         this.voice.speak('Red object placed successfully. Please pick the yellow object.', false, 'guidance');
@@ -486,12 +518,24 @@ export class PerceptionRunner {
         y: Math.round(yTargetY + ySlotH / 2),
       };
 
-      if (this.fsm.idx === 3 || this.fsm.idx === 4) {
-        const ev = this.detector.triggerManualPlace('yellow');
+      // If at step 3 (PICK_YELLOW), advance pick first
+      if (this.fsm.idx === 3) {
+        const pickEv = this.detector.triggerManualPick('yellow');
         this.eventsEmittedCount++;
-        this.fsm.onAction(ev);
+        this.fsm.onAction(pickEv);
+      }
+      // Now complete step 4 (PLACE_YELLOW)
+      if (this.fsm.idx === 4) {
+        const placeEv = this.detector.triggerManualPlace('yellow');
+        this.eventsEmittedCount++;
+        this.fsm.onAction(placeEv);
       } else {
         this.voice.speak('Experiment completed successfully.', false, 'guidance');
+      }
+
+      if (this.fsm.isComplete()) {
+        this.setSessionState('complete');
+        this.fsm.clearAlert();
       }
 
       this.playCelebratorySound();
@@ -948,12 +992,27 @@ export class PerceptionRunner {
         currentBoxOpenSignal
       );
 
-      if (detectionRes.lostDetected) {
-        this.fsm.handleLost(detectionRes.lostDetected.object, detectionRes.lostDetected.t);
+      const isExpDone = this.fsm.isComplete();
+
+      if (!isExpDone) {
+        if (detectionRes.lostDetected) {
+          const isPlaced =
+            (detectionRes.lostDetected.object === 'red' && (this.isRedPlaced || this.fsm.idx >= 3)) ||
+            (detectionRes.lostDetected.object === 'yellow' && (this.isYellowPlaced || this.fsm.idx >= 5));
+          if (!isPlaced) {
+            this.fsm.handleLost(detectionRes.lostDetected.object, detectionRes.lostDetected.t);
+          }
+        }
+        if (detectionRes.wrongZoneDetected) {
+          const isPlaced =
+            (detectionRes.wrongZoneDetected.object === 'red' && (this.isRedPlaced || this.fsm.idx >= 3)) ||
+            (detectionRes.wrongZoneDetected.object === 'yellow' && (this.isYellowPlaced || this.fsm.idx >= 5));
+          if (!isPlaced) {
+            this.fsm.handleWrongZone(detectionRes.wrongZoneDetected.object, detectionRes.wrongZoneDetected.t);
+          }
+        }
       }
-      if (detectionRes.wrongZoneDetected) {
-        this.fsm.handleWrongZone(detectionRes.wrongZoneDetected.object, detectionRes.wrongZoneDetected.t);
-      }
+
       for (const ev of detectionRes.events) {
         this.eventsEmittedCount++;
         this.fsm.onAction(ev);
@@ -969,6 +1028,9 @@ export class PerceptionRunner {
 
       if (this.fsm.isComplete()) {
         this.sessionState = 'complete';
+        if (this.fsm.activeAlert) {
+          this.fsm.clearAlert();
+        }
       }
     }
 

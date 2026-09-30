@@ -93,6 +93,7 @@ export const LiveMonitorScreen: React.FC = () => {
 
   const currentStep = protocol.steps[fsmIdx];
   const nextStep = fsmIdx + 1 < protocol.steps.length ? protocol.steps[fsmIdx + 1] : null;
+  const isCompleteProtocol = sessionState === 'complete' || fsmIdx >= protocol.steps.length;
   const recentEvents = events.slice(-8).reverse();
 
   const lastOutcome = events[events.length - 1];
@@ -437,44 +438,54 @@ export const LiveMonitorScreen: React.FC = () => {
         <div className="lg:col-span-7 space-y-4">
           <VideoStage />
 
-          {/* 6-Step Progress Bar with Ticks */}
-          <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-2 font-mono text-xs shadow-xs">
+          {/* 6-Step Progress Bar with Ticks - Updates simultaneously in real-time */}
+          <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-2.5 font-mono text-xs shadow-xs">
             <div className="flex items-center justify-between text-slate-600">
-              <span className="uppercase tracking-wider font-semibold">Protocol Sequence State</span>
-              <span className="text-cyan-700 font-bold">
-                {sessionState === 'complete' ? 'COMPLETE' : `STEP ${fsmIdx + 1} OF ${protocol.steps.length}`}
+              <span className="uppercase tracking-wider font-semibold flex items-center gap-2">
+                <span>Protocol Sequence State</span>
+                <span className={`w-2 h-2 rounded-full ${isCompleteProtocol ? 'bg-emerald-500' : 'bg-cyan-500 animate-pulse'}`} />
+              </span>
+              <span className={`font-bold transition-colors ${isCompleteProtocol ? 'text-emerald-700' : 'text-cyan-700'}`}>
+                {isCompleteProtocol
+                  ? '✓ ALL 5 STEPS COMPLETED'
+                  : `STEP ${fsmIdx + 1} OF ${protocol.steps.length} · ${protocol.steps[fsmIdx]?.name.replace('_', ' ') || ''}`}
               </span>
             </div>
 
             <div className="grid grid-cols-6 gap-1.5">
-              {protocol.steps
-                .concat({ id: 6, name: 'COMPLETE', type: 'OPEN', object: 'box', voice: 'Complete' } as any)
-                .map((stepItem, idx) => {
-                  const isPassed = fsmIdx > idx || (sessionState === 'complete' && idx === 5);
-                  const isCurrent = fsmIdx === idx && sessionState !== 'complete';
-                  return (
-                    <div
-                      key={stepItem.id}
-                      className={`h-2.5 rounded transition-colors ${
-                        isPassed
-                          ? 'bg-emerald-500 shadow-xs'
-                          : isCurrent
-                          ? 'bg-cyan-500 ring-2 ring-cyan-200 animate-pulse'
-                          : 'bg-slate-200'
-                      }`}
-                      title={stepItem.name}
-                    />
-                  );
-                })}
+              {[
+                { label: 'OPEN', id: 0, name: 'Open Box' },
+                { label: 'PICK_RED', id: 1, name: 'Pick Red' },
+                { label: 'PLACE_RED', id: 2, name: 'Place Red' },
+                { label: 'PICK_YEL', id: 3, name: 'Pick Yellow' },
+                { label: 'PLACE_YEL', id: 4, name: 'Place Yellow' },
+                { label: 'DONE', id: 5, name: 'Protocol Complete' },
+              ].map((stepItem, idx) => {
+                const isPassed = isCompleteProtocol || fsmIdx > idx;
+                const isCurrent = !isCompleteProtocol && fsmIdx === idx;
+                return (
+                  <div
+                    key={stepItem.label}
+                    className={`h-2.5 rounded transition-all duration-300 ${
+                      isPassed
+                        ? 'bg-emerald-500 shadow-xs ring-1 ring-emerald-300'
+                        : isCurrent
+                        ? 'bg-cyan-500 ring-2 ring-cyan-200 animate-pulse'
+                        : 'bg-slate-200'
+                    }`}
+                    title={`${stepItem.label} (${isPassed ? 'Completed' : isCurrent ? 'Active Now' : 'Pending'})`}
+                  />
+                );
+              })}
             </div>
 
-            <div className="grid grid-cols-6 gap-1 text-[10px] text-slate-500 pt-1 text-center font-semibold">
-              <span>OPEN</span>
-              <span>PICK_RED</span>
-              <span>PLACE_RED</span>
-              <span>PICK_YEL</span>
-              <span>PLACE_YEL</span>
-              <span>DONE</span>
+            <div className="grid grid-cols-6 gap-1 text-[10px] text-slate-500 pt-0.5 text-center font-semibold">
+              <span className={isCompleteProtocol || fsmIdx > 0 ? 'text-emerald-700 font-bold' : fsmIdx === 0 ? 'text-cyan-700 font-bold' : ''}>OPEN</span>
+              <span className={isCompleteProtocol || fsmIdx > 1 ? 'text-emerald-700 font-bold' : fsmIdx === 1 ? 'text-cyan-700 font-bold' : ''}>PICK_RED</span>
+              <span className={isCompleteProtocol || fsmIdx > 2 ? 'text-emerald-700 font-bold' : fsmIdx === 2 ? 'text-cyan-700 font-bold' : ''}>PLACE_RED</span>
+              <span className={isCompleteProtocol || fsmIdx > 3 ? 'text-emerald-700 font-bold' : fsmIdx === 3 ? 'text-cyan-700 font-bold' : ''}>PICK_YEL</span>
+              <span className={isCompleteProtocol || fsmIdx > 4 ? 'text-emerald-700 font-bold' : fsmIdx === 4 ? 'text-cyan-700 font-bold' : ''}>PLACE_YEL</span>
+              <span className={isCompleteProtocol ? 'text-emerald-700 font-bold' : ''}>DONE</span>
             </div>
           </div>
 
